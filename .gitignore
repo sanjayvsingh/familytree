@@ -1,0 +1,9 @@
+# Exclude GEDCOM files to protect personal family data
+*.ged
+*.GED
+*.gedcom
+*.GEDCOM
+
+# Sample and personal GEDCOM directories
+/gedcom/
+/sample_gedcom/

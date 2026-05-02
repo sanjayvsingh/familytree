@@ -1,0 +1,626 @@
+/* app.js — family tree interactive UI */
+'use strict';
+
+if (!window.GEDCOM || !GEDCOM.individuals) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const s = document.querySelector('.splash');
+    if (s) s.textContent = 'No GEDCOM data loaded.';
+  });
+  throw new Error('No GEDCOM data');
+}
+
+const { individuals, families } = GEDCOM;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function fmtDate(ev) {
+  return ev && ev.date ? ev.date : '';
+}
+
+function birthYear(ind) {
+  const d = fmtDate(ind.birth);
+  const m = d.match(/\b(\d{4})\b/);
+  return m ? m[1] : '';
+}
+
+function lifespan(ind) {
+  const b = birthYear(ind);
+  const dd = fmtDate(ind.death);
+  const dy = dd.match(/\b(\d{4})\b/);
+  if (!b && !dy) return '';
+  return (b || '?') + (dd ? ' – ' + (dy ? dy[1] : '?') : '');
+}
+
+function getFamily(famId) {
+  return families[famId] || null;
+}
+
+function getIndividual(id) {
+  return individuals[id] || null;
+}
+
+function cardSexClass(ind) {
+  if (!ind) return '';
+  return ind.sex === 'M' ? 'sex-M' : ind.sex === 'F' ? 'sex-F' : '';
+}
+
+// ── Tree layout ────────────────────────────────────────────────────────────
+// Centered-person layout:
+//   Row -2: paternal grandparents  maternal grandparents
+//   Row -1: father                 mother
+//   Row  0: [siblings]  FOCUS  [spouses]
+//   Row +1: children
+
+const CARD_W = 160, CARD_H = 80, GAP_X = 24, GAP_Y = 48;
+const COL_W  = CARD_W + GAP_X;
+const ROW_H  = CARD_H + GAP_Y;
+
+let focusId    = null;
+let zoomScale  = 1;
+let panX       = 0, panY = 0;
+let isPanning  = false;
+let panStartX  = 0, panStartY = 0;
+let history    = [];
+
+const canvas   = document.getElementById('tree-canvas');
+const viewport = document.getElementById('tree-viewport');
+
+function buildLayout(rootId) {
+  const nodes = [];   // { id, col, row, role }
+  const seen  = new Set();
+
+  function add(id, col, row, role) {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    nodes.push({ id, col, row, role });
+  }
+
+  const focus = getIndividual(rootId);
+  if (!focus) return nodes;
+
+  add(rootId, 0, 0, 'focus');
+
+  // Spouses (from FAMS)
+  let spouseCol = 1;
+  const spouses = [];
+  for (const famId of focus.fams || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    const spId = fam.husb === rootId ? fam.wife : fam.husb;
+    if (spId && !seen.has(spId)) {
+      add(spId, spouseCol, 0, 'spouse');
+      spouses.push({ spId, famId });
+      spouseCol++;
+    }
+
+    // Children (up to 8 shown)
+    const children = (fam.children || []).slice(0, 8);
+    const totalCh  = children.length;
+    const baseCol  = 0;  // centre children under focus
+    const startC   = baseCol - Math.floor(totalCh / 2);
+    children.forEach((chId, i) => add(chId, startC + i, 1, 'child'));
+  }
+
+  // Parents
+  for (const famId of focus.famc || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    if (fam.husb) { add(fam.husb, -1, -1, 'parent'); }
+    if (fam.wife) { add(fam.wife,  0, -1, 'parent'); }
+
+    // Paternal grandparents
+    if (fam.husb) {
+      const father = getIndividual(fam.husb);
+      for (const gpFamId of father?.famc || []) {
+        const gpFam = getFamily(gpFamId);
+        if (!gpFam) continue;
+        if (gpFam.husb) add(gpFam.husb, -2, -2, 'grandparent');
+        if (gpFam.wife) add(gpFam.wife, -1, -2, 'grandparent');
+      }
+    }
+    // Maternal grandparents
+    if (fam.wife) {
+      const mother = getIndividual(fam.wife);
+      for (const gpFamId of mother?.famc || []) {
+        const gpFam = getFamily(gpFamId);
+        if (!gpFam) continue;
+        if (gpFam.husb) add(gpFam.husb, 0, -2, 'grandparent');
+        if (gpFam.wife) add(gpFam.wife, 1, -2, 'grandparent');
+      }
+    }
+    break; // use first family as child only
+  }
+
+  // Siblings (from first parent family, max 6)
+  for (const famId of focus.famc || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    const siblings = (fam.children || []).filter(id => id !== rootId).slice(0, 6);
+    const half = Math.ceil(siblings.length / 2);
+    siblings.forEach((sibId, i) => {
+      const col = i < half ? -(i + 1) : (i - half + spouseCol);
+      add(sibId, col, 0, 'sibling');
+    });
+    break;
+  }
+
+  return nodes;
+}
+
+function renderTree(rootId) {
+  focusId = rootId;
+  canvas.innerHTML = '';
+
+  const nodes = buildLayout(rootId);
+  if (!nodes.length) return;
+
+  // Compute pixel positions
+  const positioned = nodes.map(n => ({
+    ...n,
+    x: n.col * COL_W - CARD_W / 2,
+    y: n.row * ROW_H - CARD_H / 2,
+  }));
+
+  // SVG connector layer
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('connectors');
+  canvas.appendChild(svg);
+
+  // Draw cards
+  for (const n of positioned) {
+    const ind = getIndividual(n.id);
+    if (!ind) continue;
+
+    const card = document.createElement('div');
+    card.className = `person-card ${cardSexClass(ind)}`;
+    if (n.id === rootId) card.classList.add('selected');
+    card.style.left = n.x + 'px';
+    card.style.top  = n.y + 'px';
+    card.dataset.id = n.id;
+
+    const ls = lifespan(ind);
+    card.innerHTML = `
+      <div class="card-badge">${n.role !== 'focus' ? roleLabel(n.role) : ''}</div>
+      <div class="card-name">${esc(ind.name)}</div>
+      ${ls ? `<div class="card-dates">${esc(ls)}</div>` : ''}
+    `;
+    card.addEventListener('click', () => navigateTo(n.id));
+    canvas.appendChild(card);
+  }
+
+  // Draw connectors
+  drawConnectors(svg, positioned, rootId);
+
+  // Centre the focus card
+  const focusNode = positioned.find(n => n.id === rootId);
+  if (focusNode) {
+    panX = -(focusNode.x + CARD_W / 2);
+    panY = -(focusNode.y + CARD_H / 2);
+    applyTransform();
+  }
+
+  document.getElementById('nav-back').style.display =
+    history.length > 0 ? 'block' : 'none';
+}
+
+function roleLabel(role) {
+  return { parent: 'Parent', grandparent: 'GP', sibling: 'Sibling', spouse: 'Spouse', child: 'Child' }[role] || '';
+}
+
+function drawConnectors(svg, nodes, rootId) {
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const focus = byId[rootId];
+  if (!focus) return;
+
+  const focusCX = focus.x + CARD_W / 2;
+  const focusTY = focus.y;
+  const focusBY = focus.y + CARD_H;
+
+  function elbow(x1, y1, x2, y2) {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+  }
+
+  // Focus → parents
+  nodes.filter(n => n.role === 'parent').forEach(n => {
+    const nx = n.x + CARD_W / 2;
+    const ny = n.y + CARD_H;
+    addPath(svg, elbow(focusCX, focusTY, nx, ny));
+  });
+
+  // Focus → children
+  nodes.filter(n => n.role === 'child').forEach(n => {
+    const nx = n.x + CARD_W / 2;
+    const ny = n.y;
+    addPath(svg, elbow(focusCX, focusBY, nx, ny));
+  });
+
+  // Parents → grandparents
+  nodes.filter(n => n.role === 'grandparent').forEach(n => {
+    // find nearest parent
+    const parents = nodes.filter(p => p.role === 'parent');
+    if (!parents.length) return;
+    const parent = parents.reduce((a, b) =>
+      Math.abs(a.col - n.col) < Math.abs(b.col - n.col) ? a : b);
+    const px = parent.x + CARD_W / 2;
+    const py = parent.y;
+    const nx = n.x + CARD_W / 2;
+    const ny = n.y + CARD_H;
+    addPath(svg, elbow(px, py, nx, ny));
+  });
+
+  // Spouse connector (dashed horizontal)
+  nodes.filter(n => n.role === 'spouse').forEach(n => {
+    const x1 = focus.x + CARD_W;
+    const y1 = focus.y + CARD_H / 2;
+    const x2 = n.x;
+    const y2 = n.y + CARD_H / 2;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.classList.add('spouse-line');
+    path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+    svg.appendChild(path);
+  });
+}
+
+function addPath(svg, d) {
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', d);
+  svg.appendChild(path);
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+
+function navigateTo(id, pushHistory = true) {
+  if (pushHistory && focusId && focusId !== id) {
+    history.push(focusId);
+  }
+  renderTree(id);
+  showDetail(id);
+}
+
+function goBack() {
+  const prev = history.pop();
+  if (prev) { renderTree(prev); showDetail(prev); }
+}
+
+// nav-back listener is attached after the element is created below
+
+// ── Pan & zoom ─────────────────────────────────────────────────────────────
+
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+}
+
+viewport.addEventListener('mousedown', e => {
+  if (e.target.closest('.person-card')) return;
+  isPanning = true;
+  panStartX = e.clientX - panX;
+  panStartY = e.clientY - panY;
+});
+window.addEventListener('mousemove', e => {
+  if (!isPanning) return;
+  panX = e.clientX - panStartX;
+  panY = e.clientY - panStartY;
+  applyTransform();
+});
+window.addEventListener('mouseup', () => { isPanning = false; });
+
+viewport.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  zoomScale   = Math.min(2.5, Math.max(0.3, zoomScale * delta));
+  applyTransform();
+}, { passive: false });
+
+// Touch pan
+let lastTouches = null;
+viewport.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    panStartX = e.touches[0].clientX - panX;
+    panStartY = e.touches[0].clientY - panY;
+  }
+  lastTouches = e.touches;
+}, { passive: true });
+viewport.addEventListener('touchmove', e => {
+  if (e.touches.length === 1 && !e.target.closest('.person-card')) {
+    panX = e.touches[0].clientX - panStartX;
+    panY = e.touches[0].clientY - panStartY;
+    applyTransform();
+  }
+  lastTouches = e.touches;
+}, { passive: true });
+
+// Zoom buttons
+const zoomEl = document.createElement('div');
+zoomEl.id = 'zoom-controls';
+zoomEl.innerHTML = `<button id="zoom-in" title="Zoom in">+</button><button id="zoom-out" title="Zoom out">−</button><button id="zoom-reset" title="Reset" style="font-size:13px">⌂</button>`;
+document.getElementById('tree-container').appendChild(zoomEl);
+
+document.getElementById('zoom-in').addEventListener('click', () => { zoomScale = Math.min(2.5, zoomScale * 1.2); applyTransform(); });
+document.getElementById('zoom-out').addEventListener('click', () => { zoomScale = Math.max(0.3, zoomScale / 1.2); applyTransform(); });
+document.getElementById('zoom-reset').addEventListener('click', () => { zoomScale = 1; if (focusId) navigateTo(focusId, false); });
+
+// Back button (created here so the event listener can safely reference it)
+const navBack = document.createElement('button');
+navBack.id = 'nav-back';
+navBack.textContent = '← Back';
+document.getElementById('tree-container').appendChild(navBack);
+navBack.addEventListener('click', goBack);
+
+// ── Detail panel ───────────────────────────────────────────────────────────
+
+function showDetail(id) {
+  const ind = getIndividual(id);
+  if (!ind) return;
+
+  const panel   = document.getElementById('detail-panel');
+  const content = document.getElementById('detail-content');
+  panel.hidden  = false;
+
+  const rows = [];
+
+  function eventRows(label, ev) {
+    if (!ev) return;
+    const parts = [ev.date, ev.place].filter(Boolean);
+    if (parts.length) rows.push(`<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-val">${esc(parts.join(' · '))}</span></div>`);
+  }
+
+  eventRows('Born', ind.birth);
+  eventRows('Died', ind.death);
+  eventRows('Buried', ind.burial);
+  eventRows('Christened', ind.chr);
+  if (ind.occu) rows.push(`<div class="detail-row"><span class="detail-label">Occupation</span><span class="detail-val">${esc(ind.occu)}</span></div>`);
+  if (ind.reli) rows.push(`<div class="detail-row"><span class="detail-label">Religion</span><span class="detail-val">${esc(ind.reli)}</span></div>`);
+  if (ind.resi) rows.push(`<div class="detail-row"><span class="detail-label">Residence</span><span class="detail-val">${esc(ind.resi)}</span></div>`);
+
+  // Parents
+  let parentHtml = '';
+  for (const famId of ind.famc || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    if (fam.husb) parentHtml += relLink(fam.husb, 'Father');
+    if (fam.wife) parentHtml += relLink(fam.wife, 'Mother');
+  }
+
+  // Spouses & children
+  let spouseHtml = '';
+  for (const famId of ind.fams || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    const spId = fam.husb === id ? fam.wife : fam.husb;
+    if (spId) {
+      const marrStr = fam.marr?.date ? ` (m. ${fam.marr.date})` : '';
+      spouseHtml += relLink(spId, 'Spouse', marrStr);
+    }
+    for (const chId of fam.children || []) {
+      spouseHtml += relLink(chId, 'Child');
+    }
+  }
+
+  // Siblings
+  let sibHtml = '';
+  for (const famId of ind.famc || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    for (const sibId of fam.children || []) {
+      if (sibId !== id) sibHtml += relLink(sibId, 'Sibling');
+    }
+    break;
+  }
+
+  const noteHtml = ind.note
+    ? `<div class="detail-section"><h3>Notes</h3><p style="font-size:13px;white-space:pre-wrap">${esc(ind.note)}</p></div>`
+    : '';
+
+  content.innerHTML = `
+    <h2>${esc(ind.name)}</h2>
+    <div class="detail-sub">${esc(ind.sex === 'M' ? 'Male' : ind.sex === 'F' ? 'Female' : '')}${lifespan(ind) ? '  ·  ' + esc(lifespan(ind)) : ''}</div>
+    ${rows.length ? `<div class="detail-section"><h3>Vital records</h3>${rows.join('')}</div>` : ''}
+    ${parentHtml ? `<div class="detail-section"><h3>Parents</h3>${parentHtml}</div>` : ''}
+    ${spouseHtml ? `<div class="detail-section"><h3>Spouses &amp; children</h3>${spouseHtml}</div>` : ''}
+    ${sibHtml    ? `<div class="detail-section"><h3>Siblings</h3>${sibHtml}</div>` : ''}
+    ${noteHtml}
+  `;
+
+  // Attach rel-link click handlers
+  content.querySelectorAll('.rel-link').forEach(el => {
+    el.addEventListener('click', () => navigateTo(el.dataset.id));
+  });
+}
+
+function relLink(id, role, extra = '') {
+  const ind = getIndividual(id);
+  if (!ind) return '';
+  const ls = lifespan(ind);
+  return `<div class="rel-link" data-id="${esc(id)}">
+    <span class="rel-role" style="font-size:11px;color:var(--text-muted);margin-right:6px">${role}</span>
+    <span class="rel-name">${esc(ind.name)}</span>
+    ${extra ? `<span class="rel-dates">${esc(extra)}</span>` : ''}
+    ${ls ? `<span class="rel-dates">  ${esc(ls)}</span>` : ''}
+  </div>`;
+}
+
+document.getElementById('panel-close').addEventListener('click', () => {
+  document.getElementById('detail-panel').hidden = true;
+});
+
+// ── Search ─────────────────────────────────────────────────────────────────
+
+const searchInput   = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+
+if (searchInput) {
+  let activeIdx = -1;
+
+  function closeSearch() {
+    searchResults.hidden = true;
+    activeIdx = -1;
+  }
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase();
+    if (q.length < 3) { closeSearch(); return; }
+
+    const matches = Object.values(individuals)
+      .filter(ind => ind.name.toLowerCase().includes(q))
+      .slice(0, 15);
+
+    if (!matches.length) { closeSearch(); return; }
+
+    searchResults.innerHTML = matches.map(ind => {
+      const ls = lifespan(ind);
+      return `<li data-id="${esc(ind.id)}">
+        <span class="sname">${esc(ind.name)}</span>
+        ${ls ? `<span class="sdates">${esc(ls)}</span>` : ''}
+      </li>`;
+    }).join('');
+
+    searchResults.querySelectorAll('li').forEach(li => {
+      li.addEventListener('click', () => {
+        navigateTo(li.dataset.id);
+        searchInput.value = '';
+        closeSearch();
+      });
+    });
+
+    activeIdx = -1;
+    searchResults.hidden = false;
+  });
+
+  searchInput.addEventListener('keydown', e => {
+    const items = searchResults.querySelectorAll('li');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+    } else if (e.key === 'Enter' && activeIdx >= 0) {
+      items[activeIdx]?.click();
+      return;
+    } else if (e.key === 'Escape') {
+      closeSearch();
+      return;
+    }
+    items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#search-wrap')) closeSearch();
+  });
+}
+
+// ── Upcoming dates ─────────────────────────────────────────────────────────
+
+function buildUpcoming() {
+  const upcomingList = document.getElementById('upcoming-list');
+  const upcomingYear = document.getElementById('upcoming-year');
+  if (!upcomingList) return;
+
+  const today   = new Date();
+  const year    = today.getFullYear();
+  upcomingYear.textContent = year;
+
+  const events = [];
+
+  // Month abbreviations used in GEDCOM dates
+  const MONTHS = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+
+  function parseGedDate(str) {
+    if (!str) return null;
+    const m = str.toUpperCase().match(/(?:ABT|CAL|EST|BEF|AFT)?\s*(\d{1,2}\s+)?([A-Z]{3})\s+(\d{4})/);
+    if (!m) return null;
+    const day   = m[1] ? parseInt(m[1]) : 1;
+    const month = MONTHS[m[2]];
+    if (month === undefined) return null;
+    return { day, month };   // we strip year — only care about day/month
+  }
+
+  // Birthdays
+  for (const ind of Object.values(individuals)) {
+    const parsed = parseGedDate(ind.birth?.date);
+    if (!parsed || !ind.birth?.date?.match(/\b\d{4}\b/)) continue;
+    if (ind.death?.date) continue; // skip deceased for birthdays
+    const thisYear = new Date(year, parsed.month, parsed.day);
+    const diff     = thisYear - today;
+    const daysAway = Math.ceil(diff / 86400000);
+    if (daysAway >= -1 && daysAway <= 90) {
+      events.push({ ind, type: 'Birthday', date: thisYear, daysAway, parsed });
+    }
+  }
+
+  // Anniversaries (from FAM records)
+  for (const fam of Object.values(families)) {
+    if (!fam.marr?.date) continue;
+    const parsed = parseGedDate(fam.marr.date);
+    if (!parsed) continue;
+    const h   = fam.husb ? getIndividual(fam.husb) : null;
+    const w   = fam.wife ? getIndividual(fam.wife) : null;
+    // Skip if both are deceased
+    if (h?.death?.date && w?.death?.date) continue;
+    const thisYear = new Date(year, parsed.month, parsed.day);
+    const diff     = thisYear - today;
+    const daysAway = Math.ceil(diff / 86400000);
+    if (daysAway >= -1 && daysAway <= 90) {
+      const names = [h?.name, w?.name].filter(Boolean).join(' & ');
+      events.push({ fam, type: 'Anniversary', date: thisYear, daysAway, names, parsed,
+                    id: h?.id || w?.id });
+    }
+  }
+
+  events.sort((a, b) => a.daysAway - b.daysAway);
+
+  if (!events.length) {
+    upcomingList.innerHTML = '<p style="color:var(--text-muted);font-size:13px">No upcoming dates in the next 90 days.</p>';
+    return;
+  }
+
+  upcomingList.innerHTML = events.slice(0, 20).map(ev => {
+    const label = ev.daysAway === 0 ? 'Today!' :
+                  ev.daysAway === 1 ? 'Tomorrow' :
+                  ev.daysAway < 0   ? `${Math.abs(ev.daysAway)}d ago` :
+                  `in ${ev.daysAway}d`;
+    const dateStr = ev.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const name    = ev.ind ? ev.ind.name : ev.names;
+    const navId   = ev.ind ? ev.ind.id : ev.id;
+    return `<div class="upcoming-card" data-id="${esc(navId)}">
+      <div class="uc-date">${esc(dateStr)} <span style="font-weight:400;font-size:11px">${esc(label)}</span></div>
+      <div class="uc-name">${esc(name)}</div>
+      <div class="uc-type">${esc(ev.type)}</div>
+    </div>`;
+  }).join('');
+
+  upcomingList.querySelectorAll('.upcoming-card').forEach(el => {
+    el.addEventListener('click', () => navigateTo(el.dataset.id));
+  });
+}
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function init() {
+  const ids = Object.keys(individuals);
+  if (!ids.length) return;
+
+  // Prefer someone with the most connections as the default focus
+  const startId = ids.reduce((best, id) => {
+    const ind      = individuals[id];
+    const bestInd  = individuals[best];
+    const score    = (ind.fams?.length || 0) * 2     + (ind.famc?.length || 0);
+    const bestScore= (bestInd.fams?.length || 0) * 2 + (bestInd.famc?.length || 0);
+    return score > bestScore ? id : best;
+  }, ids[0]);
+
+  navigateTo(startId, false);
+  buildUpcoming();
+}
+
+init();
