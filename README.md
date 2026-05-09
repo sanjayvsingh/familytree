@@ -7,9 +7,8 @@ A browser-based family tree viewer that reads standard GEDCOM files and renders 
 - **Interactive tree** — centered on any individual, showing grandparents, parents, siblings, spouses, and children at a glance
 - **Auto-selects a default person** — opens the most-connected individual automatically when a file is loaded
 - **Click to navigate** — click any person card to re-center the tree on them, with a back button to retrace your steps
-- **People panel** — alphabetically sorted sidebar (by last name, then given name) with a live filter box; unknown surnames sort to the bottom
+- **People panel** — alphabetically sorted sidebar (by last name, then given name) with a live filter box; unknown surnames sort to the bottom; click any name to navigate
 - **Detail panel** — vital records (birth, death, burial, christening), occupation, religion, residence, notes, and clickable relationship links
-- **Live search** — type 3+ characters in the header to find anyone by name; results appear in a dropdown
 - **Upcoming dates** — scrollable panel showing birthdays and wedding anniversaries in the next 90 days; filters out people born more than 90 years ago who have no recorded death date
 - **Pan & zoom** — drag to pan, scroll wheel or pinch to zoom, touch-friendly on mobile
 - **Privacy-safe** — GEDCOM files are gitignored and never leave your server

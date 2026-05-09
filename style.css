@@ -65,53 +65,6 @@ header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
 }
 .file-picker select option { background: var(--primary); }
 
-/* ── Search ──────────────────────────────────────────────────────────── */
-.search-wrap {
-  position: relative;
-  margin-left: auto;
-  min-width: 220px;
-}
-
-#search-input {
-  width: 100%;
-  padding: 6px 12px;
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,.3);
-  background: rgba(255,255,255,.15);
-  color: #fff;
-  font-size: 13px;
-  outline: none;
-}
-#search-input::placeholder { color: rgba(255,255,255,.6); }
-#search-input:focus { background: rgba(255,255,255,.25); border-color: rgba(255,255,255,.6); }
-
-.search-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0; right: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  list-style: none;
-  max-height: 280px;
-  overflow-y: auto;
-  z-index: 200;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
-}
-.search-dropdown li {
-  padding: 8px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  color: var(--text);
-}
-.search-dropdown li:last-child { border-bottom: none; }
-.search-dropdown li:hover, .search-dropdown li.active { background: var(--bg); }
-.search-dropdown .sname { font-weight: 500; }
-.search-dropdown .sdates { font-size: 12px; color: var(--text-muted); }
-
 /* ── Main layout ─────────────────────────────────────────────────────── */
 main {
   flex: 1;

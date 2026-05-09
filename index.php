@@ -58,10 +58,6 @@ if ($json === false) {
         </select>
       </form>
     </div>
-    <div class="search-wrap" id="search-wrap" <?= $ged_file ? '' : 'style="display:none"' ?>>
-      <input type="text" id="search-input" placeholder="Search people… (3+ chars)" autocomplete="off">
-      <ul id="search-results" class="search-dropdown" hidden></ul>
-    </div>
   </div>
 </header>
 
