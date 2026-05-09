@@ -25,6 +25,11 @@ if ($ged_file) {
     $data = parse_gedcom($ged_file);
 }
 $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
+if ($json === false) {
+    $error    = 'Failed to encode GEDCOM data: ' . json_last_error_msg();
+    $ged_file = '';
+    $json     = 'null';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -32,7 +37,7 @@ $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family Tree</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -69,6 +74,13 @@ $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
   </div>
 <?php else: ?>
   <div id="app">
+    <aside id="people-panel">
+      <div id="people-header">People</div>
+      <div id="people-search-wrap">
+        <input type="text" id="people-search" placeholder="Filter names…" autocomplete="off">
+      </div>
+      <ul id="people-list"></ul>
+    </aside>
     <div id="tree-container">
       <div id="tree-viewport">
         <div id="tree-canvas"></div>
@@ -88,7 +100,7 @@ $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
 
 <?php if ($ged_file): ?>
 <script>
-const GEDCOM = <?= $json ?>;
+window.GEDCOM = <?= $json ?>;
 </script>
 <script src="js/app.js"></script>
 <?php endif; ?>

@@ -5,16 +5,18 @@ A browser-based family tree viewer that reads standard GEDCOM files and renders 
 ## Features
 
 - **Interactive tree** — centered on any individual, showing grandparents, parents, siblings, spouses, and children at a glance
+- **Auto-selects a default person** — opens the most-connected individual automatically when a file is loaded
 - **Click to navigate** — click any person card to re-center the tree on them, with a back button to retrace your steps
+- **People panel** — alphabetically sorted sidebar (by last name, then given name) with a live filter box; unknown surnames sort to the bottom
 - **Detail panel** — vital records (birth, death, burial, christening), occupation, religion, residence, notes, and clickable relationship links
-- **Live search** — type 3+ characters to find anyone in the tree by name
-- **Upcoming dates** — scrollable panel showing birthdays and wedding anniversaries in the next 90 days
+- **Live search** — type 3+ characters in the header to find anyone by name; results appear in a dropdown
+- **Upcoming dates** — scrollable panel showing birthdays and wedding anniversaries in the next 90 days; filters out people born more than 90 years ago who have no recorded death date
 - **Pan & zoom** — drag to pan, scroll wheel or pinch to zoom, touch-friendly on mobile
 - **Privacy-safe** — GEDCOM files are gitignored and never leave your server
 
 ## Requirements
 
-- PHP 8.0+ (only the standard `file()` function — no extensions needed)
+- PHP 8.0+ with the `iconv` extension (bundled with PHP by default)
 - A web server (Apache, Nginx, or `php -S localhost:8000`)
 
 ## Setup
@@ -40,7 +42,7 @@ A browser-based family tree viewer that reads standard GEDCOM files and renders 
 
 ## GEDCOM Support
 
-Parses GEDCOM 5.5.1. Supported records and tags:
+Parses GEDCOM 5.5.1 using a streaming line-by-line reader (handles large files without memory issues). Supported records and tags:
 
 | Record | Tags parsed |
 |--------|------------|
@@ -48,18 +50,19 @@ Parses GEDCOM 5.5.1. Supported records and tags:
 | `FAM`  | `HUSB WIFE CHIL`, `MARR DIV` (with `DATE PLAC`), `NOTE` |
 | `NOTE` | Inline and `@xref@` pointer notes, with `CONT`/`CONC` continuation |
 
-Multi-byte characters (UTF-8 BOM) are handled automatically.
+**Encoding:** UTF-8 (with BOM stripping), ANSI/Windows-1252, and ISO-8859-1 files are all handled automatically via the `CHAR` header tag.
+
+**Name parsing:** Given names and surnames are extracted from the standard `Name /Surname/` slash notation when `GIVN`/`SURN` sub-tags are absent.
 
 ## Project Structure
 
 ```
 familytree/
 ├── index.php           # Entry point — file picker, data injection, HTML shell
-├── gedcom_parser.php   # GEDCOM 5.5.1 parser
+├── gedcom_parser.php   # Streaming GEDCOM 5.5.1 parser with encoding detection
+├── style.css           # All styles (warm earth-tone theme, responsive)
 ├── js/
-│   └── app.js          # Tree layout, rendering, navigation, search, upcoming dates
-├── css/
-│   └── style.css       # All styles (warm earth-tone theme, responsive)
+│   └── app.js          # Tree layout, rendering, navigation, search, people panel, upcoming dates
 └── gedcom/             # Your .ged files go here (gitignored)
 ```
 

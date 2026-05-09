@@ -277,11 +277,64 @@ function navigateTo(id, pushHistory = true) {
   }
   renderTree(id);
   showDetail(id);
+  highlightPeopleList(id);
 }
 
 function goBack() {
   const prev = history.pop();
-  if (prev) { renderTree(prev); showDetail(prev); }
+  if (prev) { renderTree(prev); showDetail(prev); highlightPeopleList(prev); }
+}
+
+function buildPeopleList() {
+  const list   = document.getElementById('people-list');
+  const filter = document.getElementById('people-search');
+  if (!list) return;
+
+  // Extract sort key: [lastName, givenName]
+  // Names with no recognisable surname (unknown/empty) sort last.
+  function sortKey(ind) {
+    const name = ind.name || '';
+    if (!name || name === '(Unknown)' || /^\(/.test(name) || /^\?/.test(name)) {
+      return ['￿', ''];
+    }
+    // Prefer explicit surn sub-tag, otherwise use last word of display name
+    const surn  = ind.surn || name.split(/\s+/).pop();
+    const given = name.endsWith(surn) ? name.slice(0, -surn.length).trim() : name;
+    return [surn.toLowerCase(), given.toLowerCase()];
+  }
+
+  const sorted = Object.values(individuals).slice().sort((a, b) => {
+    const [aLast, aGiven] = sortKey(a);
+    const [bLast, bGiven] = sortKey(b);
+    return aLast.localeCompare(bLast) || aGiven.localeCompare(bGiven);
+  });
+
+  list.innerHTML = sorted.map(ind =>
+    `<li data-id="${esc(ind.id)}" data-name="${esc(ind.name.toLowerCase())}">${esc(ind.name)}</li>`
+  ).join('');
+
+  list.querySelectorAll('li').forEach(li => {
+    li.addEventListener('click', () => navigateTo(li.dataset.id));
+  });
+
+  if (filter) {
+    filter.addEventListener('input', () => {
+      const q = filter.value.trim().toLowerCase();
+      list.querySelectorAll('li').forEach(li => {
+        li.hidden = q.length > 0 && !li.dataset.name.includes(q);
+      });
+    });
+  }
+}
+
+function highlightPeopleList(id) {
+  const list = document.getElementById('people-list');
+  if (!list) return;
+  list.querySelectorAll('li').forEach(li =>
+    li.classList.toggle('active', li.dataset.id === id)
+  );
+  const active = list.querySelector('li.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
 }
 
 // nav-back listener is attached after the element is created below
@@ -541,7 +594,9 @@ function buildUpcoming() {
   for (const ind of Object.values(individuals)) {
     const parsed = parseGedDate(ind.birth?.date);
     if (!parsed || !ind.birth?.date?.match(/\b\d{4}\b/)) continue;
-    if (ind.death?.date) continue; // skip deceased for birthdays
+    if (ind.death?.date) continue; // skip known deceased
+    const birthYearMatch = ind.birth.date.match(/\b(\d{4})\b/);
+    if (birthYearMatch && (year - parseInt(birthYearMatch[1])) > 90) continue; // likely deceased
     const thisYear = new Date(year, parsed.month, parsed.day);
     const diff     = thisYear - today;
     const daysAway = Math.ceil(diff / 86400000);
@@ -619,6 +674,7 @@ function init() {
     return score > bestScore ? id : best;
   }, ids[0]);
 
+  buildPeopleList();
   navigateTo(startId, false);
   buildUpcoming();
 }

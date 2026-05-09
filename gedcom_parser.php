@@ -4,13 +4,30 @@
  * Returns ['individuals' => [...], 'families' => [...]]
  */
 function parse_gedcom(string $filepath): array {
-    $lines = file($filepath, FILE_IGNORE_NEW_LINES);
-    if ($lines === false) return ['individuals' => [], 'families' => []];
+    ini_set('memory_limit', '512M');
 
-    // Strip UTF-8 BOM if present
-    if (isset($lines[0]) && str_starts_with($lines[0], "\xEF\xBB\xBF")) {
-        $lines[0] = substr($lines[0], 3);
+    $fh = fopen($filepath, 'r');
+    if ($fh === false) return ['individuals' => [], 'families' => []];
+
+    // Detect charset from GEDCOM header (first 30 lines)
+    $charset   = 'UTF-8';
+    $firstLine = true;
+    for ($i = 0; $i < 30 && ($peek = fgets($fh)) !== false; $i++) {
+        if ($firstLine && str_starts_with($peek, "\xEF\xBB\xBF")) {
+            $peek = substr($peek, 3);
+        }
+        $firstLine = false;
+        if (preg_match('/^1\s+CHAR\s+(\S+)/', rtrim($peek), $m)) {
+            $cs = strtoupper(trim($m[1]));
+            if (in_array($cs, ['ANSI', 'ANSEL', 'WINDOWS-1252', 'CP1252'])) {
+                $charset = 'Windows-1252';
+            } elseif (in_array($cs, ['ISO-8859-1', 'LATIN1', 'LATIN-1'])) {
+                $charset = 'ISO-8859-1';
+            }
+            break;
+        }
     }
+    rewind($fh);
 
     $individuals = [];
     $families    = [];
@@ -20,8 +37,8 @@ function parse_gedcom(string $filepath): array {
     $id  = null;
     $rec = [];
     $l1  = null;   // current level-1 tag
-    // Track last text field for CONT/CONC appending (key into $rec)
     $last_text_key = null;
+    $firstLine = true;
 
     $flush = function() use (&$individuals, &$families, &$notes, &$ctx, &$id, &$rec) {
         if (!$ctx || !$id) return;
@@ -32,8 +49,21 @@ function parse_gedcom(string $filepath): array {
 
     $ev = fn() => ['date' => '', 'place' => ''];
 
-    foreach ($lines as $raw) {
+    while (($raw = fgets($fh)) !== false) {
         $line = rtrim($raw, "\r\n");
+
+        if ($firstLine) {
+            if (str_starts_with($line, "\xEF\xBB\xBF")) {
+                $line = substr($line, 3);
+            }
+            $firstLine = false;
+        }
+
+        if ($charset !== 'UTF-8') {
+            $line = iconv($charset, 'UTF-8//TRANSLIT//IGNORE', $line);
+            if ($line === false) continue;
+        }
+
         if ($line === '') continue;
 
         if (!preg_match('/^(\d+)\s+(\S+)(?:\s+(.*))?$/', $line, $m)) continue;
@@ -63,16 +93,17 @@ function parse_gedcom(string $filepath): array {
                 $ctx = $value;
                 if ($ctx === 'INDI') {
                     $rec = [
-                        'id'    => $id,   'name'  => '',
-                        'npfx'  => '',    'givn'  => '',
-                        'nick'  => '',    'spfx'  => '',
-                        'surn'  => '',    'nsfx'  => '',
-                        'sex'   => 'U',
-                        'birth' => $ev(), 'death' => $ev(),
-                        'burial'=> $ev(), 'chr'   => $ev(),
-                        'occu'  => '',    'reli'  => '',
-                        'resi'  => '',    'note'  => '',
-                        'fams'  => [],    'famc'  => [],
+                        'id'     => $id,   'name'   => '',
+                        'npfx'   => '',    'givn'   => '',
+                        'nick'   => '',    'spfx'   => '',
+                        'surn'   => '',    'nsfx'   => '',
+                        '_given' => '',    '_surn'  => '',
+                        'sex'    => 'U',
+                        'birth'  => $ev(), 'death'  => $ev(),
+                        'burial' => $ev(), 'chr'    => $ev(),
+                        'occu'   => '',    'reli'   => '',
+                        'resi'   => '',    'note'   => '',
+                        'fams'   => [],    'famc'   => [],
                         '_note_refs' => [],
                     ];
                 } elseif ($ctx === 'FAM') {
@@ -106,6 +137,11 @@ function parse_gedcom(string $filepath): array {
                     case 'NAME':
                         if (empty($rec['name'])) {
                             $rec['name'] = trim(str_replace('/', '', $value));
+                            // Extract given name and surname from standard /Surname/ notation
+                            if (preg_match('/^(.*?)\s*\/([^\/]*)\//u', $value, $nm)) {
+                                $rec['_given'] = trim($nm[1]);
+                                $rec['_surn']  = trim($nm[2]);
+                            }
                         }
                         break;
                     case 'SEX':  $rec['sex']  = $value; break;
@@ -180,6 +216,7 @@ function parse_gedcom(string $filepath): array {
             }
         }
     }
+    fclose($fh);
     $flush();
 
     // Resolve @xref@ note pointers
@@ -192,18 +229,26 @@ function parse_gedcom(string $filepath): array {
         }
         unset($ind['_note_refs']);
 
-        // Build canonical display name from components, falling back to NAME field
-        $parts = array_filter([
-            $ind['npfx'],
-            $ind['givn'] ?: (explode(' ', $ind['name'])[0] ?? ''),
-            $ind['nick']  ? '"' . $ind['nick'] . '"' : '',
-            $ind['spfx'],
-            $ind['surn'],
-            $ind['nsfx'],
-        ]);
-        $built = trim(implode(' ', $parts));
-        $ind['display_name'] = $built ?: ($ind['name'] ?: '(Unknown)');
+        // Build canonical display name from components
+        $hasStructure = $ind['givn'] || $ind['surn'] || $ind['_given'] || $ind['_surn'];
+        if ($hasStructure) {
+            $given = $ind['givn'] ?: $ind['_given'];
+            $surn  = $ind['surn'] ?: $ind['_surn'];
+            $parts = array_filter([
+                $ind['npfx'],
+                $given,
+                $ind['nick']  ? '"' . $ind['nick'] . '"' : '',
+                $ind['spfx'],
+                $surn,
+                $ind['nsfx'],
+            ]);
+            $built = trim(implode(' ', $parts));
+        } else {
+            $built = $ind['name']; // use full cleaned NAME value as-is
+        }
+        $ind['display_name'] = $built ?: '(Unknown)';
         $ind['name']         = $ind['display_name'];
+        unset($ind['_given'], $ind['_surn']);
     }
     unset($ind);
 
