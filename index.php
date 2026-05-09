@@ -6,6 +6,10 @@ $ged_dir  = __DIR__ . '/gedcom/';
 $ged_file = '';
 $error    = '';
 
+// List available GED files for the picker
+$available = glob($ged_dir . '*.ged') ?: [];
+$available = array_map('basename', $available);
+
 if (isset($_GET['file'])) {
     $requested = basename($_GET['file']); // strip any path traversal
     $candidate = $ged_dir . $requested;
@@ -14,11 +18,9 @@ if (isset($_GET['file'])) {
     } else {
         $error = 'File not found.';
     }
+} elseif (count($available) === 1) {
+    $ged_file = $ged_dir . $available[0]; // auto-load the only file
 }
-
-// List available GED files for the picker
-$available = glob($ged_dir . '*.ged') ?: [];
-$available = array_map('basename', $available);
 
 $data = ['individuals' => [], 'families' => []];
 if ($ged_file) {
@@ -44,6 +46,7 @@ if ($json === false) {
 <header>
   <div class="header-inner">
     <h1>Family Tree</h1>
+    <?php if (count($available) > 1): ?>
     <div class="file-picker">
       <form method="get" action="">
         <label for="file-select">GEDCOM file:</label>
@@ -58,6 +61,7 @@ if ($json === false) {
         </select>
       </form>
     </div>
+    <?php endif; ?>
   </div>
 </header>
 
@@ -96,9 +100,10 @@ if ($json === false) {
 
 <?php if ($ged_file): ?>
 <script>
-window.GEDCOM = <?= $json ?>;
+window.GEDCOM      = <?= $json ?>;
+window.GEDCOM_FILE = <?= json_encode(basename($ged_file)) ?>;
 </script>
-<script src="js/app.js"></script>
+<script src="app.js"></script>
 <?php endif; ?>
 </body>
 </html>

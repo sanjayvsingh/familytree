@@ -60,8 +60,7 @@ familytree/
 ├── index.php           # Entry point — file picker, data injection, HTML shell
 ├── gedcom_parser.php   # Streaming GEDCOM 5.5.1 parser with encoding detection
 ├── style.css           # All styles (warm earth-tone theme, responsive)
-├── js/
-│   └── app.js          # Tree layout, rendering, navigation, search, people panel, upcoming dates
+├── app.js              # Tree layout, rendering, navigation, people panel, upcoming dates
 └── gedcom/             # Your .ged files go here (gitignored)
 ```
 
