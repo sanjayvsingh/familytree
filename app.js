@@ -31,6 +31,21 @@ function lifespan(ind) {
   return (b || '?') + (dd ? ' – ' + (dy ? dy[1] : '?') : '');
 }
 
+function formatFullDate(gedStr) {
+  const MONS = { JAN:'Jan',FEB:'Feb',MAR:'Mar',APR:'Apr',MAY:'May',JUN:'Jun',
+                 JUL:'Jul',AUG:'Aug',SEP:'Sep',OCT:'Oct',NOV:'Nov',DEC:'Dec' };
+  const m = gedStr.toUpperCase().match(/(\d{1,2})\s+([A-Z]{3})\s+(\d{4})/);
+  if (!m || !MONS[m[2]]) return '';
+  return `${MONS[m[2]]} ${parseInt(m[1])}, ${m[3]}`;
+}
+
+function cardDates(ind) {
+  const deathDate = fmtDate(ind.death);
+  if (deathDate) return lifespan(ind);          // deceased: show year range
+  const full = formatFullDate(fmtDate(ind.birth));
+  return full || birthYear(ind);                // living: full date or year
+}
+
 function getFamily(famId) {
   return families[famId] || null;
 }
@@ -178,11 +193,13 @@ function renderTree(rootId) {
     card.style.top  = n.y + 'px';
     card.dataset.id = n.id;
 
-    const ls = lifespan(ind);
+    const ls = cardDates(ind);
+    const isMe = n.id === getMeId();
     card.innerHTML = `
       <div class="card-badge">${n.role !== 'focus' ? roleLabel(n.role) : ''}</div>
       <div class="card-name">${esc(ind.name)}</div>
       ${ls ? `<div class="card-dates">${esc(ls)}</div>` : ''}
+      ${isMe ? '<div class="card-me">me</div>' : ''}
     `;
     card.addEventListener('click', () => navigateTo(n.id));
     canvas.appendChild(card);
@@ -309,9 +326,11 @@ function buildPeopleList() {
     return aLast.localeCompare(bLast) || aGiven.localeCompare(bGiven);
   });
 
-  list.innerHTML = sorted.map(ind =>
-    `<li data-id="${esc(ind.id)}" data-name="${esc(ind.name.toLowerCase())}">${esc(ind.name)}</li>`
-  ).join('');
+  const meId = getMeId();
+  list.innerHTML = sorted.map(ind => {
+    const isMe = ind.id === meId;
+    return `<li data-id="${esc(ind.id)}" data-name="${esc(ind.name.toLowerCase())}">${esc(ind.name)}${isMe ? ' <span class="pl-me">me</span>' : ''}</li>`;
+  }).join('');
 
   list.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => navigateTo(li.dataset.id));
@@ -419,7 +438,14 @@ function showDetail(id) {
     if (parts.length) rows.push(`<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-val">${esc(parts.join(' · '))}</span></div>`);
   }
 
-  eventRows('Born', ind.birth);
+  const isLiving = ind.birth?.date && !ind.death?.date;
+  if (ind.birth?.date) {
+    const fullBirth = isLiving ? (formatFullDate(ind.birth.date) || ind.birth.date) : ind.birth.date;
+    const parts = [fullBirth, ind.birth.place].filter(Boolean);
+    rows.push(`<div class="detail-row"><span class="detail-label">Born</span><span class="detail-val">${esc(parts.join(' · '))}</span></div>`);
+  } else if (ind.birth?.place) {
+    rows.push(`<div class="detail-row"><span class="detail-label">Born</span><span class="detail-val">${esc(ind.birth.place)}</span></div>`);
+  }
   eventRows('Died', ind.death);
   eventRows('Buried', ind.burial);
   eventRows('Christened', ind.chr);
@@ -462,6 +488,31 @@ function showDetail(id) {
     break;
   }
 
+  // Grandchildren — collect from each child's families, dedup, sort oldest first
+  const gcSeen = new Set();
+  const gcIds  = [];
+  for (const famId of ind.fams || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    for (const chId of fam.children || []) {
+      const ch = getIndividual(chId);
+      if (!ch) continue;
+      for (const chFamId of ch.fams || []) {
+        const chFam = getFamily(chFamId);
+        if (!chFam) continue;
+        for (const gcId of chFam.children || []) {
+          if (!gcSeen.has(gcId)) { gcSeen.add(gcId); gcIds.push(gcId); }
+        }
+      }
+    }
+  }
+  gcIds.sort((a, b) => {
+    const ay = parseInt(birthYear(getIndividual(a)) || '9999');
+    const by = parseInt(birthYear(getIndividual(b)) || '9999');
+    return ay - by;
+  });
+  const gcHtml = gcIds.map(gcId => relLink(gcId, 'Grandchild')).join('');
+
   const noteHtml = ind.note
     ? `<div class="detail-section"><h3>Notes</h3><p style="font-size:13px;white-space:pre-wrap">${esc(ind.note)}</p></div>`
     : '';
@@ -472,6 +523,7 @@ function showDetail(id) {
     ${rows.length ? `<div class="detail-section"><h3>Vital records</h3>${rows.join('')}</div>` : ''}
     ${parentHtml ? `<div class="detail-section"><h3>Parents</h3>${parentHtml}</div>` : ''}
     ${spouseHtml ? `<div class="detail-section"><h3>Spouses &amp; children</h3>${spouseHtml}</div>` : ''}
+    ${gcHtml     ? `<div class="detail-section"><h3>Grandchildren</h3>${gcHtml}</div>` : ''}
     ${sibHtml    ? `<div class="detail-section"><h3>Siblings</h3>${sibHtml}</div>` : ''}
     ${noteHtml}
   `;
@@ -511,6 +563,11 @@ function buildUpcoming() {
 
   const events = [];
 
+  const meId    = getMeId();
+  const distMap = meId ? buildDistanceMap(meId) : null;
+  const ME_MAX  = 5;
+  const inRange = id => !distMap || (distMap[id] ?? Infinity) <= ME_MAX;
+
   // Month abbreviations used in GEDCOM dates
   const MONTHS = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
 
@@ -521,26 +578,35 @@ function buildUpcoming() {
     const day   = m[1] ? parseInt(m[1]) : 1;
     const month = MONTHS[m[2]];
     if (month === undefined) return null;
-    return { day, month };   // we strip year — only care about day/month
+    return { day, month, year: parseInt(m[3]) };
+  }
+
+  function ordinal(n) {
+    const v = n % 100;
+    const s = ['th', 'st', 'nd', 'rd'];
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
   // Birthdays
   for (const ind of Object.values(individuals)) {
+    if (!inRange(ind.id)) continue;
     const parsed = parseGedDate(ind.birth?.date);
-    if (!parsed || !ind.birth?.date?.match(/\b\d{4}\b/)) continue;
+    if (!parsed) continue;
     if (ind.death?.date) continue; // skip known deceased
-    const birthYearMatch = ind.birth.date.match(/\b(\d{4})\b/);
-    if (birthYearMatch && (year - parseInt(birthYearMatch[1])) > 90) continue; // likely deceased
+    const age = year - parsed.year;
+    if (age > 90) continue; // likely deceased
     const thisYear = new Date(year, parsed.month, parsed.day);
     const diff     = thisYear - today;
     const daysAway = Math.ceil(diff / 86400000);
     if (daysAway >= -1 && daysAway <= 90) {
-      events.push({ ind, type: 'Birthday', date: thisYear, daysAway, parsed });
+      const type = age > 0 ? `${ordinal(age)} birthday` : 'Birthday';
+      events.push({ ind, type, date: thisYear, daysAway });
     }
   }
 
   // Anniversaries (from FAM records)
   for (const fam of Object.values(families)) {
+    if (!inRange(fam.husb) && !inRange(fam.wife)) continue;
     if (!fam.marr?.date) continue;
     const parsed = parseGedDate(fam.marr.date);
     if (!parsed) continue;
@@ -552,9 +618,10 @@ function buildUpcoming() {
     const diff     = thisYear - today;
     const daysAway = Math.ceil(diff / 86400000);
     if (daysAway >= -1 && daysAway <= 90) {
+      const years = year - parsed.year;
+      const type  = years > 0 ? `${ordinal(years)} anniversary` : 'Anniversary';
       const names = [h?.name, w?.name].filter(Boolean).join(' & ');
-      events.push({ fam, type: 'Anniversary', date: thisYear, daysAway, names, parsed,
-                    id: h?.id || w?.id });
+      events.push({ fam, type, date: thisYear, daysAway, names, id: h?.id || w?.id });
     }
   }
 
@@ -595,12 +662,108 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── "Set as me" ────────────────────────────────────────────────────────────
+
+function meStorageKey() {
+  return `familytree:me:${window.GEDCOM_FILE || ''}`;
+}
+
+function getMeId() {
+  const id = localStorage.getItem(meStorageKey());
+  return id && individuals[id] ? id : null;
+}
+
+function setAsMe(id) {
+  localStorage.setItem(meStorageKey(), id);
+  renderTree(focusId);
+  buildPeopleList();
+  highlightPeopleList(focusId);
+  buildUpcoming();
+}
+
+function clearMe() {
+  localStorage.removeItem(meStorageKey());
+  renderTree(focusId);
+  buildPeopleList();
+  highlightPeopleList(focusId);
+  buildUpcoming();
+}
+
+function buildDistanceMap(fromId) {
+  const dist  = { [fromId]: 0 };
+  const queue = [fromId];
+  while (queue.length) {
+    const cur = queue.shift();
+    const ind = individuals[cur];
+    if (!ind) continue;
+    const next = [];
+    for (const famId of ind.famc || []) {
+      const fam = families[famId];
+      if (!fam) continue;
+      if (fam.husb) next.push(fam.husb);
+      if (fam.wife) next.push(fam.wife);
+    }
+    for (const famId of ind.fams || []) {
+      const fam = families[famId];
+      if (!fam) continue;
+      if (fam.husb && fam.husb !== cur) next.push(fam.husb);
+      if (fam.wife && fam.wife !== cur) next.push(fam.wife);
+      for (const chId of fam.children || []) next.push(chId);
+    }
+    for (const nb of next) {
+      if (!(nb in dist)) { dist[nb] = dist[cur] + 1; queue.push(nb); }
+    }
+  }
+  return dist;
+}
+
+// Context menu
+const ctxMenu = document.createElement('div');
+ctxMenu.id = 'ctx-menu';
+ctxMenu.hidden = true;
+document.body.appendChild(ctxMenu);
+
+function showCtxMenu(x, y, id) {
+  const isMe = id === getMeId();
+  ctxMenu.innerHTML = isMe
+    ? `<button>Not me</button>`
+    : `<button>Set as me</button>`;
+  ctxMenu.hidden = false;
+  ctxMenu.style.left = Math.min(x, window.innerWidth  - 170) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight -  50) + 'px';
+  ctxMenu.querySelector('button').addEventListener('click', () => {
+    isMe ? clearMe() : setAsMe(id);
+    hideCtxMenu();
+  });
+}
+
+function hideCtxMenu() { ctxMenu.hidden = true; }
+
+canvas.addEventListener('contextmenu', e => {
+  const card = e.target.closest('.person-card');
+  if (!card) return;
+  e.preventDefault();
+  showCtxMenu(e.clientX, e.clientY, card.dataset.id);
+});
+
+document.getElementById('people-list').addEventListener('contextmenu', e => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  e.preventDefault();
+  showCtxMenu(e.clientX, e.clientY, li.dataset.id);
+});
+
+document.addEventListener('click',   () => hideCtxMenu());
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
+
+// ── Bootstrap ───────────────────────────────────────────────────────────────
+
 function init() {
   const ids = Object.keys(individuals);
   if (!ids.length) return;
 
-  // Prefer someone with the most connections as the default focus
-  const startId = ids.reduce((best, id) => {
+  const savedId = getMeId();
+  const startId = savedId || ids.reduce((best, id) => {
     const ind      = individuals[id];
     const bestInd  = individuals[best];
     const score    = (ind.fams?.length || 0) * 2     + (ind.famc?.length || 0);
