@@ -23,7 +23,7 @@ if (isset($_GET['file'])) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family Tree</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__.'/style.css') ?>">
 </head>
 <body>
 
@@ -88,7 +88,7 @@ if (isset($_GET['file'])) {
 
 <?php if ($selected): ?>
 <script>window.GEDCOM_FILE = <?= json_encode($selected) ?>;</script>
-<script src="app.js"></script>
+<script src="app.js?v=<?= filemtime(__DIR__.'/app.js') ?>"></script>
 <?php endif; ?>
 </body>
 </html>

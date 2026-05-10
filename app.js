@@ -779,7 +779,7 @@ let fullTreePrevFocusId = null;
 
 function buildFullTreeLayout(rootId) {
   const addedSet = new Set();
-  const byGen   = {};   // gen (row) → [id, ...]
+  const byGen   = {};
 
   function addPerson(id, gen) {
     if (!id || addedSet.has(id)) return;
@@ -788,14 +788,14 @@ function buildFullTreeLayout(rootId) {
     byGen[gen].push(id);
   }
 
-  // Root's siblings at row 0
   const rootInd = getIndividual(rootId);
+
+  // Row 0: siblings, root, spouses
   for (const famId of rootInd?.famc || []) {
     const fam = getFamily(famId);
     if (!fam) continue;
     for (const sibId of fam.children || []) addPerson(sibId, 0);
   }
-  // Root + their spouses at row 0
   addPerson(rootId, 0);
   for (const famId of rootInd?.fams || []) {
     const fam = getFamily(famId);
@@ -804,9 +804,8 @@ function buildFullTreeLayout(rootId) {
     if (spId) addPerson(spId, 0);
   }
 
-  // Ancestor BFS (rows < 0)
-  let front = [rootId];
-  let gen   = 0;
+  // Ancestor BFS
+  let front = [rootId], gen = 0;
   while (front.length) {
     const next = [];
     for (const id of front) {
@@ -822,20 +821,18 @@ function buildFullTreeLayout(rootId) {
             const pfam = getFamily(pfamId);
             if (!pfam) continue;
             const sp = pfam.husb === pid ? pfam.wife : pfam.husb;
-            if (sp) addPerson(sp, gen - 1);
+            if (sp && !addedSet.has(sp)) { addPerson(sp, gen - 1); next.push(sp); }
           }
           next.push(pid);
         }
       }
     }
-    front = next;
-    gen--;
+    front = next; gen--;
     if (gen < -15) break;
   }
 
-  // Descendant BFS (rows > 0)
-  front = [rootId];
-  gen   = 0;
+  // Descendant BFS
+  front = [rootId]; gen = 0;
   const dVisited = new Set([rootId]);
   while (front.length) {
     const next = [];
@@ -853,49 +850,123 @@ function buildFullTreeLayout(rootId) {
             const chFam = getFamily(chFamId);
             if (!chFam) continue;
             const sp = chFam.husb === chId ? chFam.wife : chFam.husb;
-            if (sp) addPerson(sp, gen + 1);
+            if (sp && !addedSet.has(sp)) addPerson(sp, gen + 1);
           }
           next.push(chId);
         }
       }
     }
-    front = next;
-    gen++;
+    front = next; gen++;
     if (gen > 15) break;
   }
 
-  // Within each row, group couples adjacently
-  for (const g of Object.keys(byGen)) {
-    const people    = byGen[g];
-    const grouped   = [];
-    const processed = new Set();
+  // ── Position assignment ──────────────────────────────────────────────────
+  // Each row is ordered so that groups sit near their relatives in adjacent
+  // rows, minimising line crossings.
+  const colOf = {};
+
+  function mean(arr) {
+    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  }
+
+  // Row 0: fixed order — siblings | root | spouses
+  {
+    const row0Set = new Set(byGen[0] || []);
+    const sibs = [], sps = [];
+    for (const famId of rootInd?.famc || []) {
+      const fam = getFamily(famId);
+      if (!fam) continue;
+      for (const sibId of fam.children || []) {
+        if (sibId !== rootId && row0Set.has(sibId)) sibs.push(sibId);
+      }
+    }
+    for (const famId of rootInd?.fams || []) {
+      const fam = getFamily(famId);
+      if (!fam) continue;
+      const spId = fam.husb === rootId ? fam.wife : fam.husb;
+      if (spId && row0Set.has(spId)) sps.push(spId);
+    }
+    const ordered = [...sibs, rootId, ...sps];
+    const start   = -Math.floor(ordered.length / 2);
+    ordered.forEach((id, i) => { colOf[id] = start + i; });
+  }
+
+  function childCols(id) {
+    const ind = getIndividual(id);
+    const cols = [];
+    for (const famId of ind?.fams || []) {
+      const fam = getFamily(famId);
+      if (!fam) continue;
+      for (const chId of fam.children || []) {
+        if (colOf[chId] !== undefined) cols.push(colOf[chId]);
+      }
+    }
+    return cols;
+  }
+
+  function parentCols(id) {
+    const ind = getIndividual(id);
+    const cols = [];
+    for (const famId of ind?.famc || []) {
+      const fam = getFamily(famId);
+      if (!fam) continue;
+      if (colOf[fam.husb] !== undefined) cols.push(colOf[fam.husb]);
+      if (colOf[fam.wife] !== undefined) cols.push(colOf[fam.wife]);
+    }
+    return cols;
+  }
+
+  function positionRow(people, getRelCols) {
+    if (!people?.length) return;
+    const peopleSet = new Set(people);
+
+    // Build couple groups (husband left of wife)
+    const seen   = new Set();
+    const groups = [];
     for (const id of people) {
-      if (processed.has(id)) continue;
-      processed.add(id);
-      grouped.push(id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      let group = [id];
       const ind = getIndividual(id);
-      for (const famId of [...(ind?.fams || []), ...(ind?.famc || [])]) {
+      for (const famId of ind?.fams || []) {
         const fam = getFamily(famId);
         if (!fam) continue;
         const spId = fam.husb === id ? fam.wife : fam.husb;
-        if (spId && people.includes(spId) && !processed.has(spId)) {
-          processed.add(spId);
-          grouped.push(spId);
+        if (spId && peopleSet.has(spId) && !seen.has(spId)) {
+          seen.add(spId);
+          group = ind?.sex === 'F' ? [spId, id] : [id, spId];
+          break;
         }
       }
+      groups.push(group);
     }
-    byGen[g] = grouped;
+
+    // Ideal column for each group = mean column of their relatives
+    const order = groups.map(g => {
+      const cols = g.flatMap(id => getRelCols(id));
+      return { g, ideal: cols.length ? mean(cols) : Infinity };
+    });
+    order.sort((a, b) => a.ideal - b.ideal);
+
+    const flat         = order.flatMap(({ g }) => g);
+    const validIdeals  = order.map(x => x.ideal).filter(v => v !== Infinity);
+    const centre       = validIdeals.length ? Math.round(mean(validIdeals)) : 0;
+    const start        = centre - Math.floor(flat.length / 2);
+    flat.forEach((id, i) => { colOf[id] = start + i; });
   }
 
-  // Assign columns — each row centred at 0
+  const allGens = Object.keys(byGen).map(Number).sort((a, b) => a - b);
+  // Ancestors: closest row first so each row references already-placed row below
+  for (const g of allGens.filter(g => g < 0).reverse()) positionRow(byGen[g], childCols);
+  // Descendants: closest row first
+  for (const g of allGens.filter(g => g > 0))           positionRow(byGen[g], parentCols);
+
   const nodes = [];
-  for (const g of Object.keys(byGen).map(Number).sort((a, b) => a - b)) {
-    const people = byGen[g];
-    const startCol = -Math.floor(people.length / 2);
-    people.forEach((id, i) => {
+  for (const g of allGens) {
+    for (const id of byGen[g]) {
       const role = id === rootId ? 'focus' : g < 0 ? 'ancestor' : g > 0 ? 'descendant' : 'peer';
-      nodes.push({ id, col: startCol + i, row: g, role });
-    });
+      nodes.push({ id, col: colOf[id] ?? 0, row: g, role });
+    }
   }
   return nodes;
 }
@@ -904,31 +975,49 @@ function drawFullTreeConnectors(svg, positioned) {
   const byId = Object.fromEntries(positioned.map(n => [n.id, n]));
 
   for (const fam of Object.values(families)) {
-    const hNode = fam.husb ? byId[fam.husb] : null;
-    const wNode = fam.wife ? byId[fam.wife] : null;
-    const parentNode = hNode || wNode;
-    if (!parentNode) continue;
+    const hNode    = fam.husb ? byId[fam.husb] : null;
+    const wNode    = fam.wife ? byId[fam.wife] : null;
+    const children = (fam.children || []).map(id => byId[id]).filter(Boolean);
 
     // Spouse line (dashed, same row only)
     if (hNode && wNode && hNode.row === wNode.row) {
       const left  = hNode.x <= wNode.x ? hNode : wNode;
       const right = hNode.x <= wNode.x ? wNode : hNode;
-      const path  = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.classList.add('spouse-line');
-      path.setAttribute('d', `M ${left.x + CARD_W} ${left.y + CARD_H / 2} L ${right.x} ${right.y + CARD_H / 2}`);
-      svg.appendChild(path);
+      const sp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      sp.classList.add('spouse-line');
+      sp.setAttribute('d', `M ${left.x + CARD_W} ${left.y + CARD_H / 2} L ${right.x} ${right.y + CARD_H / 2}`);
+      svg.appendChild(sp);
     }
 
-    // Parent → children
-    const pCX = parentNode.x + CARD_W / 2;
-    const pBY = parentNode.y + CARD_H;
-    for (const chId of fam.children || []) {
-      const chNode = byId[chId];
-      if (!chNode) continue;
-      const chCX = chNode.x + CARD_W / 2;
-      const chTY = chNode.y;
-      const my   = (pBY + chTY) / 2;
-      addPath(svg, `M ${pCX} ${pBY} C ${pCX} ${my}, ${chCX} ${my}, ${chCX} ${chTY}`);
+    if (!children.length) continue;
+
+    // Parent stem: midpoint between both parents, or the single parent
+    let pX, pY;
+    if (hNode && wNode && hNode.row === wNode.row) {
+      pX = ((hNode.x + CARD_W / 2) + (wNode.x + CARD_W / 2)) / 2;
+      pY = hNode.y + CARD_H;
+    } else if (hNode) {
+      pX = hNode.x + CARD_W / 2; pY = hNode.y + CARD_H;
+    } else if (wNode) {
+      pX = wNode.x + CARD_W / 2; pY = wNode.y + CARD_H;
+    } else {
+      continue;
+    }
+
+    const childY = Math.min(...children.map(ch => ch.y));
+    const midY   = pY + (childY - pY) * 0.4;
+
+    if (children.length === 1) {
+      const chX = children[0].x + CARD_W / 2;
+      addPath(svg, `M ${pX} ${pY} L ${pX} ${midY} L ${chX} ${midY} L ${chX} ${children[0].y}`);
+    } else {
+      // T-bar: stem down → horizontal bar → drop to each child
+      const childXs = children.map(ch => ch.x + CARD_W / 2);
+      addPath(svg, `M ${pX} ${pY} L ${pX} ${midY}`);
+      addPath(svg, `M ${Math.min(...childXs)} ${midY} L ${Math.max(...childXs)} ${midY}`);
+      for (const ch of children) {
+        addPath(svg, `M ${ch.x + CARD_W / 2} ${midY} L ${ch.x + CARD_W / 2} ${ch.y}`);
+      }
     }
   }
 }
