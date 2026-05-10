@@ -1,15 +1,26 @@
 /* app.js — family tree interactive UI */
 'use strict';
 
-if (!window.GEDCOM || !GEDCOM.individuals) {
-  document.addEventListener('DOMContentLoaded', () => {
-    const s = document.querySelector('.splash');
-    if (s) s.textContent = 'No GEDCOM data loaded.';
-  });
-  throw new Error('No GEDCOM data');
+const individuals = {};
+const families    = {};
+const detailCache = new Map();
+
+async function fetchIndex() {
+  const res = await fetch(`api.php?action=index&file=${encodeURIComponent(window.GEDCOM_FILE)}`);
+  if (!res.ok) throw new Error('Index fetch failed');
+  const data = await res.json();
+  Object.assign(individuals, data.individuals);
+  Object.assign(families,    data.families);
 }
 
-const { individuals, families } = GEDCOM;
+async function fetchPerson(id) {
+  if (detailCache.has(id)) return detailCache.get(id);
+  const res = await fetch(`api.php?action=person&file=${encodeURIComponent(window.GEDCOM_FILE)}&id=${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error('Person fetch failed');
+  const data = await res.json();
+  detailCache.set(id, data);
+  return data;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -422,13 +433,31 @@ navBack.addEventListener('click', goBack);
 
 // ── Detail panel ───────────────────────────────────────────────────────────
 
-function showDetail(id) {
-  const ind = getIndividual(id);
-  if (!ind) return;
+async function showDetail(id) {
+  const slim  = getIndividual(id);
+  if (!slim) return;
 
   const panel   = document.getElementById('detail-panel');
   const content = document.getElementById('detail-content');
   panel.hidden  = false;
+
+  // Show name/sex immediately while full record loads
+  content.innerHTML = `
+    <h2>${esc(slim.name)}</h2>
+    <div class="detail-sub">${esc(slim.sex === 'M' ? 'Male' : slim.sex === 'F' ? 'Female' : '')}${lifespan(slim) ? '  ·  ' + esc(lifespan(slim)) : ''}</div>
+    <p class="detail-loading">Loading…</p>
+  `;
+
+  let ind;
+  try {
+    ind = await fetchPerson(id);
+  } catch(e) {
+    const p = content.querySelector('.detail-loading');
+    if (p) { p.textContent = 'Failed to load details.'; p.style.color = '#b91c1c'; }
+    return;
+  }
+
+  if (id !== focusId) return; // user navigated away while fetching
 
   const rows = [];
 
@@ -453,7 +482,7 @@ function showDetail(id) {
   if (ind.reli) rows.push(`<div class="detail-row"><span class="detail-label">Religion</span><span class="detail-val">${esc(ind.reli)}</span></div>`);
   if (ind.resi) rows.push(`<div class="detail-row"><span class="detail-label">Residence</span><span class="detail-val">${esc(ind.resi)}</span></div>`);
 
-  // Parents
+  // Parents (use slim family + slim individual data — already loaded)
   let parentHtml = '';
   for (const famId of ind.famc || []) {
     const fam = getFamily(famId);
@@ -488,7 +517,7 @@ function showDetail(id) {
     break;
   }
 
-  // Grandchildren — collect from each child's families, dedup, sort oldest first
+  // Grandchildren — dedup, sort oldest first
   const gcSeen = new Set();
   const gcIds  = [];
   for (const famId of ind.fams || []) {
@@ -528,7 +557,6 @@ function showDetail(id) {
     ${noteHtml}
   `;
 
-  // Attach rel-link click handlers
   content.querySelectorAll('.rel-link').forEach(el => {
     el.addEventListener('click', () => navigateTo(el.dataset.id));
   });
@@ -758,16 +786,25 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────
 
-function init() {
+async function init() {
+  canvas.innerHTML = '<p style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text-muted)">Loading…</p>';
+
+  try {
+    await fetchIndex();
+  } catch(e) {
+    canvas.innerHTML = '<p style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#b91c1c">Failed to load data.</p>';
+    return;
+  }
+
   const ids = Object.keys(individuals);
   if (!ids.length) return;
 
   const savedId = getMeId();
   const startId = savedId || ids.reduce((best, id) => {
-    const ind      = individuals[id];
-    const bestInd  = individuals[best];
-    const score    = (ind.fams?.length || 0) * 2     + (ind.famc?.length || 0);
-    const bestScore= (bestInd.fams?.length || 0) * 2 + (bestInd.famc?.length || 0);
+    const ind       = individuals[id];
+    const bestInd   = individuals[best];
+    const score     = (ind.fams?.length || 0) * 2     + (ind.famc?.length || 0);
+    const bestScore = (bestInd.fams?.length || 0) * 2 + (bestInd.famc?.length || 0);
     return score > bestScore ? id : best;
   }, ids[0]);
 

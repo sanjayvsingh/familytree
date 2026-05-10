@@ -1,36 +1,20 @@
 <?php
-require_once 'gedcom_parser.php';
-
-// Allowed GED files must live in the gedcom/ directory
-$ged_dir  = __DIR__ . '/gedcom/';
-$ged_file = '';
-$error    = '';
-
-// List available GED files for the picker
+$ged_dir   = __DIR__ . '/gedcom/';
 $available = glob($ged_dir . '*.ged') ?: [];
 $available = array_map('basename', $available);
 
+$selected = '';
+$error    = '';
+
 if (isset($_GET['file'])) {
-    $requested = basename($_GET['file']); // strip any path traversal
-    $candidate = $ged_dir . $requested;
-    if (pathinfo($candidate, PATHINFO_EXTENSION) === 'ged' && is_file($candidate)) {
-        $ged_file = $candidate;
+    $f = basename($_GET['file']);
+    if (pathinfo($f, PATHINFO_EXTENSION) === 'ged' && is_file($ged_dir . $f)) {
+        $selected = $f;
     } else {
         $error = 'File not found.';
     }
 } elseif (count($available) === 1) {
-    $ged_file = $ged_dir . $available[0]; // auto-load the only file
-}
-
-$data = ['individuals' => [], 'families' => []];
-if ($ged_file) {
-    $data = parse_gedcom($ged_file);
-}
-$json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
-if ($json === false) {
-    $error    = 'Failed to encode GEDCOM data: ' . json_last_error_msg();
-    $ged_file = '';
-    $json     = 'null';
+    $selected = $available[0];
 }
 ?>
 <!DOCTYPE html>
@@ -54,7 +38,7 @@ if ($json === false) {
           <option value="">— choose —</option>
           <?php foreach ($available as $f): ?>
             <option value="<?= htmlspecialchars($f) ?>"
-              <?= ($ged_file && basename($ged_file) === $f) ? 'selected' : '' ?>>
+              <?= ($selected === $f) ? 'selected' : '' ?>>
               <?= htmlspecialchars($f) ?>
             </option>
           <?php endforeach; ?>
@@ -68,7 +52,7 @@ if ($json === false) {
 <main>
 <?php if ($error): ?>
   <div class="notice error"><?= htmlspecialchars($error) ?></div>
-<?php elseif (!$ged_file): ?>
+<?php elseif (!$selected): ?>
   <div class="splash">
     <p>Select a GEDCOM file above to get started.</p>
   </div>
@@ -98,11 +82,8 @@ if ($json === false) {
 <?php endif; ?>
 </main>
 
-<?php if ($ged_file): ?>
-<script>
-window.GEDCOM      = <?= $json ?>;
-window.GEDCOM_FILE = <?= json_encode(basename($ged_file)) ?>;
-</script>
+<?php if ($selected): ?>
+<script>window.GEDCOM_FILE = <?= json_encode($selected) ?>;</script>
 <script src="app.js"></script>
 <?php endif; ?>
 </body>

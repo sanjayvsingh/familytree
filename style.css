@@ -326,6 +326,7 @@ svg.connectors path.spouse-line {
   border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
 }
+.detail-loading { font-size: 13px; color: var(--text-muted); padding: 12px 0; }
 .detail-row { display: flex; gap: 8px; margin-bottom: 4px; font-size: 13px; }
 .detail-label { color: var(--text-muted); min-width: 70px; }
 .detail-val { color: var(--text); }

@@ -255,6 +255,36 @@ function parse_gedcom(string $filepath): array {
     return ['individuals' => $individuals, 'families' => $families];
 }
 
+/**
+ * Returns parsed GEDCOM data, using a file-based cache keyed on the .ged mtime.
+ * The cache/ directory and its .htaccess are created automatically on first use.
+ */
+function get_cached_gedcom(string $filepath): array {
+    $cache_dir  = __DIR__ . '/cache/';
+    $cache_key  = md5(realpath($filepath) ?: $filepath);
+    $cache_file = $cache_dir . $cache_key . '.json';
+
+    if (is_file($cache_file) && filemtime($cache_file) >= filemtime($filepath)) {
+        $json = file_get_contents($cache_file);
+        if ($json !== false) {
+            $data = json_decode($json, true);
+            if (is_array($data)) return $data;
+        }
+    }
+
+    $data = parse_gedcom($filepath);
+
+    if (!is_dir($cache_dir)) {
+        mkdir($cache_dir, 0755, true);
+        file_put_contents($cache_dir . '.htaccess',
+            "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n" .
+            "<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
+    }
+    file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE));
+
+    return $data;
+}
+
 function ged_event_key(string $tag): string {
     return match($tag) {
         'BIRT'        => 'birth',

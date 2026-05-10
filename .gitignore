@@ -1,9 +1,8 @@
 # Exclude GEDCOM files to protect personal family data
-*.ged
-*.GED
-*.gedcom
-*.GEDCOM
+/gedcom/*.ged
+/gedcom/*.GED
+/gedcom/*.gedcom
+/gedcom/*.GEDCOM
 
-# Sample and personal GEDCOM directories
-/gedcom/
-/sample_gedcom/
+# Parser cache — generated at runtime, never commit
+/cache/
