@@ -86,7 +86,6 @@ let zoomScale  = 1;
 let panX       = 0, panY = 0;
 let isPanning  = false;
 let panStartX  = 0, panStartY = 0;
-let history    = [];
 
 const canvas   = document.getElementById('tree-canvas');
 const viewport = document.getElementById('tree-viewport');
@@ -227,8 +226,6 @@ function renderTree(rootId) {
     applyTransform();
   }
 
-  document.getElementById('nav-back').style.display =
-    history.length > 0 ? 'block' : 'none';
 }
 
 function roleLabel(role) {
@@ -299,18 +296,10 @@ function addPath(svg, d) {
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
-function navigateTo(id, pushHistory = true) {
-  if (pushHistory && focusId && focusId !== id) {
-    history.push(focusId);
-  }
+function navigateTo(id) {
   renderTree(id);
   showDetail(id);
   highlightPeopleList(id);
-}
-
-function goBack() {
-  const prev = history.pop();
-  if (prev) { renderTree(prev); showDetail(prev); highlightPeopleList(prev); }
 }
 
 function buildPeopleList() {
@@ -425,14 +414,7 @@ document.getElementById('tree-container').appendChild(zoomEl);
 
 document.getElementById('zoom-in').addEventListener('click', () => { zoomScale = Math.min(2.5, zoomScale * 1.2); applyTransform(); });
 document.getElementById('zoom-out').addEventListener('click', () => { zoomScale = Math.max(0.3, zoomScale / 1.2); applyTransform(); });
-document.getElementById('zoom-reset').addEventListener('click', () => { zoomScale = 1; if (focusId) navigateTo(focusId, false); });
-
-// Back button (created here so the event listener can safely reference it)
-const navBack = document.createElement('button');
-navBack.id = 'nav-back';
-navBack.textContent = '← Back';
-document.getElementById('tree-container').appendChild(navBack);
-navBack.addEventListener('click', goBack);
+document.getElementById('zoom-reset').addEventListener('click', () => { zoomScale = 1; if (focusId) navigateTo(focusId); });
 
 // ── Detail panel ───────────────────────────────────────────────────────────
 
@@ -585,12 +567,10 @@ document.getElementById('panel-close').addEventListener('click', () => {
 
 function buildUpcoming() {
   const upcomingList = document.getElementById('upcoming-list');
-  const upcomingYear = document.getElementById('upcoming-year');
   if (!upcomingList) return;
 
   const today   = new Date();
   const year    = today.getFullYear();
-  upcomingYear.textContent = year;
 
   const events = [];
 
@@ -787,30 +767,50 @@ document.getElementById('people-list').addEventListener('contextmenu', e => {
 document.addEventListener('click',   () => hideCtxMenu());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
 
-// ── Mobile UI ──────────────────────────────────────────────────────────────
+// ── People panel & upcoming toggle ────────────────────────────────────────
 
 (function () {
-  const searchBtn   = document.getElementById('mobile-search-btn');
-  const closeBtn    = document.getElementById('people-close');
-  const peoplePanel = document.getElementById('people-panel');
+  const searchBtn     = document.getElementById('mobile-search-btn');
+  const closeBtn      = document.getElementById('people-close');
+  const peoplePanel   = document.getElementById('people-panel');
+  const upcomingPanel = document.getElementById('upcoming-panel');
+  const upcomingToggle = document.getElementById('upcoming-toggle');
+
+  function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
 
   if (searchBtn && peoplePanel) {
     searchBtn.addEventListener('click', () => {
-      peoplePanel.classList.add('mobile-open');
+      if (isMobile()) {
+        peoplePanel.classList.add('mobile-open');
+      } else {
+        peoplePanel.classList.remove('people-hidden');
+      }
       document.getElementById('people-search')?.focus();
     });
   }
 
   if (closeBtn && peoplePanel) {
     closeBtn.addEventListener('click', () => {
-      peoplePanel.classList.remove('mobile-open');
+      if (isMobile()) {
+        peoplePanel.classList.remove('mobile-open');
+      } else {
+        peoplePanel.classList.add('people-hidden');
+      }
+    });
+  }
+
+  if (upcomingToggle && upcomingPanel) {
+    upcomingToggle.addEventListener('click', () => {
+      const collapsed = upcomingPanel.classList.toggle('collapsed');
+      upcomingToggle.textContent = collapsed ? '▸' : '▾';
+      upcomingToggle.setAttribute('aria-label', collapsed ? 'Expand upcoming' : 'Collapse upcoming');
     });
   }
 
   // Tap the tree (not a card) to dismiss the detail panel on mobile
   document.getElementById('tree-viewport')?.addEventListener('click', e => {
     if (e.target.closest('.person-card')) return;
-    if (window.matchMedia('(max-width: 768px)').matches) {
+    if (isMobile()) {
       document.getElementById('detail-panel').hidden = true;
     }
   });
@@ -841,7 +841,7 @@ async function init() {
   }, ids[0]);
 
   buildPeopleList();
-  navigateTo(startId, false);
+  navigateTo(startId);
   buildUpcoming();
 }
 

@@ -79,7 +79,7 @@ if (isset($_GET['file'])) {
     </aside>
   </div>
   <div id="upcoming-panel">
-    <h2>Upcoming dates <span id="upcoming-year"></span></h2>
+    <h2>Upcoming Events <button id="upcoming-toggle" aria-label="Collapse upcoming">&#x25BE;</button></h2>
     <div id="upcoming-list"></div>
   </div>
 <?php endif; ?>
