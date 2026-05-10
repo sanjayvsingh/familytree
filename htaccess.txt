@@ -24,6 +24,17 @@
 </FilesMatch>
 
 
+# ── Gzip compression ─────────────────────────────────────────
+# Compresses JSON API responses by ~75%, JS/CSS by ~70%.
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/plain
+</IfModule>
+
+
 # ── Security headers ─────────────────────────────────────────
 <IfModule mod_headers.c>
 
@@ -48,6 +59,10 @@
     # — fetch/XHR: self only (api.php calls)
     # — no external fonts, images, or frames
     Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; frame-ancestors 'none';"
+
+    # Remove the X-Powered-By header that advertises the PHP version
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
 
     # No caching for pages that contain family data
     <FilesMatch "\.(php)$">

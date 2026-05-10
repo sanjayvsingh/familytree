@@ -13,7 +13,7 @@ function parse_gedcom(string $filepath): array {
     $charset   = 'UTF-8';
     $firstLine = true;
     for ($i = 0; $i < 30 && ($peek = fgets($fh)) !== false; $i++) {
-        if ($firstLine && str_starts_with($peek, "\xEF\xBB\xBF")) {
+        if ($firstLine && strncmp($peek, "\xEF\xBB\xBF", 3) === 0) {
             $peek = substr($peek, 3);
         }
         $firstLine = false;
@@ -53,7 +53,7 @@ function parse_gedcom(string $filepath): array {
         $line = rtrim($raw, "\r\n");
 
         if ($firstLine) {
-            if (str_starts_with($line, "\xEF\xBB\xBF")) {
+            if (strncmp($line, "\xEF\xBB\xBF", 3) === 0) {
                 $line = substr($line, 3);
             }
             $firstLine = false;
@@ -256,13 +256,69 @@ function parse_gedcom(string $filepath): array {
 }
 
 /**
- * Returns parsed GEDCOM data, using a file-based cache keyed on the .ged mtime.
+ * Builds the slim index payload (names, links, birth/death dates only).
+ * This is what the browser loads on startup — no notes, places, or extra events.
+ */
+function build_slim_index(array $data): array {
+    $out_inds = [];
+    foreach ($data['individuals'] as $id => $ind) {
+        $out_inds[$id] = [
+            'id'   => $id,
+            'name' => $ind['name'],
+            'surn' => $ind['surn'] ?? '',
+            'sex'  => $ind['sex'],
+            'fams' => $ind['fams'],
+            'famc' => $ind['famc'],
+            'birth' => ['date' => $ind['birth']['date'] ?? ''],
+            'death' => ['date' => $ind['death']['date'] ?? ''],
+        ];
+    }
+    $out_fams = [];
+    foreach ($data['families'] as $id => $fam) {
+        $out_fams[$id] = [
+            'id'       => $id,
+            'husb'     => $fam['husb'],
+            'wife'     => $fam['wife'],
+            'children' => $fam['children'],
+            'marr'     => ['date' => $fam['marr']['date'] ?? ''],
+        ];
+    }
+    return ['individuals' => $out_inds, 'families' => $out_fams];
+}
+
+/**
+ * Returns the slim index from its own small cache file.
+ * On a cache hit this reads/decodes only the slim file — never the full one.
+ */
+function get_slim_index(string $filepath): array {
+    $cache_dir  = __DIR__ . '/cache/';
+    $cache_key  = md5(realpath($filepath) ?: $filepath);
+    $index_file = $cache_dir . $cache_key . '_index.json';
+
+    if (is_file($index_file) && filemtime($index_file) >= filemtime($filepath)) {
+        $json = file_get_contents($index_file);
+        if ($json !== false) {
+            $data = json_decode($json, true);
+            if (is_array($data)) return $data;
+        }
+    }
+
+    // Cache miss — parse and write both files, then return slim index
+    get_cached_gedcom($filepath);
+    $json = file_get_contents($index_file);
+    return $json ? (json_decode($json, true) ?: []) : [];
+}
+
+/**
+ * Returns full parsed GEDCOM data, using a file-based cache keyed on the .ged mtime.
+ * Also writes the slim index cache so get_slim_index() stays fast.
  * The cache/ directory and its .htaccess are created automatically on first use.
  */
 function get_cached_gedcom(string $filepath): array {
     $cache_dir  = __DIR__ . '/cache/';
     $cache_key  = md5(realpath($filepath) ?: $filepath);
     $cache_file = $cache_dir . $cache_key . '.json';
+    $index_file = $cache_dir . $cache_key . '_index.json';
 
     if (is_file($cache_file) && filemtime($cache_file) >= filemtime($filepath)) {
         $json = file_get_contents($cache_file);
@@ -281,22 +337,17 @@ function get_cached_gedcom(string $filepath): array {
             "<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
     }
     file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE));
+    file_put_contents($index_file, json_encode(build_slim_index($data), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG));
 
     return $data;
 }
 
 function ged_event_key(string $tag): string {
-    return match($tag) {
-        'BIRT'        => 'birth',
-        'DEAT'        => 'death',
-        'BURI'        => 'burial',
-        'CHR', 'BAPM' => 'chr',
-        'CONF'        => 'conf',
-        'ADOP'        => 'adop',
-        'GRAD'        => 'grad',
-        'RETI'        => 'reti',
-        'EMIG'        => 'emig',
-        'IMMI'        => 'immi',
-        default       => strtolower($tag),
-    };
+    static $map = [
+        'BIRT' => 'birth', 'DEAT' => 'death', 'BURI' => 'burial',
+        'CHR'  => 'chr',   'BAPM' => 'chr',   'CONF' => 'conf',
+        'ADOP' => 'adop',  'GRAD' => 'grad',  'RETI' => 'reti',
+        'EMIG' => 'emig',  'IMMI' => 'immi',
+    ];
+    return $map[$tag] ?? strtolower($tag);
 }

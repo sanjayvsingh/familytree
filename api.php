@@ -23,44 +23,16 @@ if ($path === false || $base === false || strpos($path, $base) !== 0 || !is_file
     exit;
 }
 
-$data = get_cached_gedcom($path);
-
 switch ($action) {
 
     case 'index':
-        // Slim record — just what the tree, people panel, and upcoming dates need.
-        // Full vital details are fetched per-person via action=person.
-        $out_inds = [];
-        foreach ($data['individuals'] as $id => $ind) {
-            $out_inds[$id] = [
-                'id'   => $id,
-                'name' => $ind['name'],
-                'surn' => $ind['surn'] ?? '',
-                'sex'  => $ind['sex'],
-                'fams' => $ind['fams'],
-                'famc' => $ind['famc'],
-                'birth' => ['date' => $ind['birth']['date'] ?? ''],
-                'death' => ['date' => $ind['death']['date'] ?? ''],
-            ];
-        }
-        $out_fams = [];
-        foreach ($data['families'] as $id => $fam) {
-            $out_fams[$id] = [
-                'id'       => $id,
-                'husb'     => $fam['husb'],
-                'wife'     => $fam['wife'],
-                'children' => $fam['children'],
-                'marr'     => ['date' => $fam['marr']['date'] ?? ''],
-            ];
-        }
-        echo json_encode(
-            ['individuals' => $out_inds, 'families' => $out_fams],
-            JSON_UNESCAPED_UNICODE | JSON_HEX_TAG
-        );
+        // Reads only the pre-built slim cache — never loads the full dataset.
+        echo json_encode(get_slim_index($path), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
         break;
 
     case 'person':
-        $id = $_GET['id'] ?? '';
+        $id   = $_GET['id'] ?? '';
+        $data = get_cached_gedcom($path);
         if (!isset($data['individuals'][$id])) {
             http_response_code(404);
             echo json_encode(['error' => 'Person not found']);
