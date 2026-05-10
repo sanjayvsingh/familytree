@@ -576,7 +576,7 @@ function buildUpcoming() {
 
   const meId    = getMeId();
   const distMap = meId ? buildDistanceMap(meId) : null;
-  const ME_MAX  = 5;
+  const ME_MAX  = 4;
   const inRange = id => !distMap || (distMap[id] ?? Infinity) <= ME_MAX;
 
   // Month abbreviations used in GEDCOM dates
@@ -736,15 +736,20 @@ document.body.appendChild(ctxMenu);
 
 function showCtxMenu(x, y, id) {
   const isMe = id === getMeId();
-  ctxMenu.innerHTML = isMe
-    ? `<button>Not me</button>`
-    : `<button>Set as me</button>`;
+  ctxMenu.innerHTML = `
+    <button data-action="me">${isMe ? 'Not me' : 'Set as me'}</button>
+    <button data-action="full-tree">See full tree</button>
+  `;
   ctxMenu.hidden = false;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - 170) + 'px';
-  ctxMenu.style.top  = Math.min(y, window.innerHeight -  50) + 'px';
-  ctxMenu.querySelector('button').addEventListener('click', () => {
+  ctxMenu.style.top  = Math.min(y, window.innerHeight -  80) + 'px';
+  ctxMenu.querySelector('[data-action="me"]').addEventListener('click', () => {
     isMe ? clearMe() : setAsMe(id);
     hideCtxMenu();
+  });
+  ctxMenu.querySelector('[data-action="full-tree"]').addEventListener('click', () => {
+    hideCtxMenu();
+    enterFullTree(id);
   });
 }
 
@@ -766,6 +771,226 @@ document.getElementById('people-list').addEventListener('contextmenu', e => {
 
 document.addEventListener('click',   () => hideCtxMenu());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
+
+// ── Full tree mode ─────────────────────────────────────────────────────────
+
+let fullTreeActive = false;
+let fullTreePrevFocusId = null;
+
+function buildFullTreeLayout(rootId) {
+  const addedSet = new Set();
+  const byGen   = {};   // gen (row) → [id, ...]
+
+  function addPerson(id, gen) {
+    if (!id || addedSet.has(id)) return;
+    addedSet.add(id);
+    if (!byGen[gen]) byGen[gen] = [];
+    byGen[gen].push(id);
+  }
+
+  // Root's siblings at row 0
+  const rootInd = getIndividual(rootId);
+  for (const famId of rootInd?.famc || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    for (const sibId of fam.children || []) addPerson(sibId, 0);
+  }
+  // Root + their spouses at row 0
+  addPerson(rootId, 0);
+  for (const famId of rootInd?.fams || []) {
+    const fam = getFamily(famId);
+    if (!fam) continue;
+    const spId = fam.husb === rootId ? fam.wife : fam.husb;
+    if (spId) addPerson(spId, 0);
+  }
+
+  // Ancestor BFS (rows < 0)
+  let front = [rootId];
+  let gen   = 0;
+  while (front.length) {
+    const next = [];
+    for (const id of front) {
+      const ind = getIndividual(id);
+      for (const famId of ind?.famc || []) {
+        const fam = getFamily(famId);
+        if (!fam) continue;
+        for (const pid of [fam.husb, fam.wife].filter(Boolean)) {
+          if (addedSet.has(pid)) continue;
+          addPerson(pid, gen - 1);
+          const pind = getIndividual(pid);
+          for (const pfamId of pind?.fams || []) {
+            const pfam = getFamily(pfamId);
+            if (!pfam) continue;
+            const sp = pfam.husb === pid ? pfam.wife : pfam.husb;
+            if (sp) addPerson(sp, gen - 1);
+          }
+          next.push(pid);
+        }
+      }
+    }
+    front = next;
+    gen--;
+    if (gen < -15) break;
+  }
+
+  // Descendant BFS (rows > 0)
+  front = [rootId];
+  gen   = 0;
+  const dVisited = new Set([rootId]);
+  while (front.length) {
+    const next = [];
+    for (const id of front) {
+      const ind = getIndividual(id);
+      for (const famId of ind?.fams || []) {
+        const fam = getFamily(famId);
+        if (!fam) continue;
+        for (const chId of fam.children || []) {
+          if (dVisited.has(chId)) continue;
+          dVisited.add(chId);
+          addPerson(chId, gen + 1);
+          const chInd = getIndividual(chId);
+          for (const chFamId of chInd?.fams || []) {
+            const chFam = getFamily(chFamId);
+            if (!chFam) continue;
+            const sp = chFam.husb === chId ? chFam.wife : chFam.husb;
+            if (sp) addPerson(sp, gen + 1);
+          }
+          next.push(chId);
+        }
+      }
+    }
+    front = next;
+    gen++;
+    if (gen > 15) break;
+  }
+
+  // Within each row, group couples adjacently
+  for (const g of Object.keys(byGen)) {
+    const people    = byGen[g];
+    const grouped   = [];
+    const processed = new Set();
+    for (const id of people) {
+      if (processed.has(id)) continue;
+      processed.add(id);
+      grouped.push(id);
+      const ind = getIndividual(id);
+      for (const famId of [...(ind?.fams || []), ...(ind?.famc || [])]) {
+        const fam = getFamily(famId);
+        if (!fam) continue;
+        const spId = fam.husb === id ? fam.wife : fam.husb;
+        if (spId && people.includes(spId) && !processed.has(spId)) {
+          processed.add(spId);
+          grouped.push(spId);
+        }
+      }
+    }
+    byGen[g] = grouped;
+  }
+
+  // Assign columns — each row centred at 0
+  const nodes = [];
+  for (const g of Object.keys(byGen).map(Number).sort((a, b) => a - b)) {
+    const people = byGen[g];
+    const startCol = -Math.floor(people.length / 2);
+    people.forEach((id, i) => {
+      const role = id === rootId ? 'focus' : g < 0 ? 'ancestor' : g > 0 ? 'descendant' : 'peer';
+      nodes.push({ id, col: startCol + i, row: g, role });
+    });
+  }
+  return nodes;
+}
+
+function drawFullTreeConnectors(svg, positioned) {
+  const byId = Object.fromEntries(positioned.map(n => [n.id, n]));
+
+  for (const fam of Object.values(families)) {
+    const hNode = fam.husb ? byId[fam.husb] : null;
+    const wNode = fam.wife ? byId[fam.wife] : null;
+    const parentNode = hNode || wNode;
+    if (!parentNode) continue;
+
+    // Spouse line (dashed, same row only)
+    if (hNode && wNode && hNode.row === wNode.row) {
+      const left  = hNode.x <= wNode.x ? hNode : wNode;
+      const right = hNode.x <= wNode.x ? wNode : hNode;
+      const path  = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.classList.add('spouse-line');
+      path.setAttribute('d', `M ${left.x + CARD_W} ${left.y + CARD_H / 2} L ${right.x} ${right.y + CARD_H / 2}`);
+      svg.appendChild(path);
+    }
+
+    // Parent → children
+    const pCX = parentNode.x + CARD_W / 2;
+    const pBY = parentNode.y + CARD_H;
+    for (const chId of fam.children || []) {
+      const chNode = byId[chId];
+      if (!chNode) continue;
+      const chCX = chNode.x + CARD_W / 2;
+      const chTY = chNode.y;
+      const my   = (pBY + chTY) / 2;
+      addPath(svg, `M ${pCX} ${pBY} C ${pCX} ${my}, ${chCX} ${my}, ${chCX} ${chTY}`);
+    }
+  }
+}
+
+function renderFullTree(rootId) {
+  canvas.innerHTML = '';
+  const nodes = buildFullTreeLayout(rootId);
+  if (!nodes.length) return;
+
+  const positioned = nodes.map(n => ({
+    ...n,
+    x: n.col * COL_W - CARD_W / 2,
+    y: n.row * ROW_H - CARD_H / 2,
+  }));
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('connectors');
+  canvas.appendChild(svg);
+
+  for (const n of positioned) {
+    const ind = getIndividual(n.id);
+    if (!ind) continue;
+    const card = document.createElement('div');
+    card.className = `person-card ${cardSexClass(ind)}`;
+    if (n.id === rootId) card.classList.add('selected');
+    card.style.left = n.x + 'px';
+    card.style.top  = n.y + 'px';
+    card.dataset.id = n.id;
+    const ls  = cardDates(ind);
+    const isMe = n.id === getMeId();
+    card.innerHTML = `
+      <div class="card-name">${esc(ind.name)}</div>
+      ${ls ? `<div class="card-dates">${esc(ls)}</div>` : ''}
+      ${isMe ? '<div class="card-me">me</div>' : ''}
+    `;
+    canvas.appendChild(card);
+  }
+
+  drawFullTreeConnectors(svg, positioned);
+
+  const focusNode = positioned.find(n => n.id === rootId);
+  if (focusNode) {
+    zoomScale = 0.65;
+    panX = -(focusNode.x + CARD_W / 2);
+    panY = -(focusNode.y + CARD_H / 2);
+    applyTransform();
+  }
+}
+
+function enterFullTree(rootId) {
+  fullTreeActive = true;
+  fullTreePrevFocusId = focusId;
+  document.body.classList.add('full-tree-mode');
+  renderFullTree(rootId);
+}
+
+function exitFullTree() {
+  fullTreeActive = false;
+  document.body.classList.remove('full-tree-mode');
+  const restoreId = fullTreePrevFocusId || focusId;
+  if (restoreId) navigateTo(restoreId);
+}
 
 // ── People panel & upcoming toggle ────────────────────────────────────────
 
@@ -806,6 +1031,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(
       upcomingToggle.setAttribute('aria-label', collapsed ? 'Expand upcoming' : 'Collapse upcoming');
     });
   }
+
+  document.getElementById('full-tree-close').addEventListener('click', exitFullTree);
 
   // Tap the tree (not a card) to dismiss the detail panel on mobile
   document.getElementById('tree-viewport')?.addEventListener('click', e => {

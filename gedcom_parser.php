@@ -4,7 +4,6 @@
  * Returns ['individuals' => [...], 'families' => [...]]
  */
 function parse_gedcom(string $filepath): array {
-    ini_set('memory_limit', '512M');
 
     $fh = fopen($filepath, 'r');
     if ($fh === false) return ['individuals' => [], 'families' => []];
@@ -336,8 +335,8 @@ function get_cached_gedcom(string $filepath): array {
             "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n" .
             "<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
     }
-    file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE));
-    file_put_contents($index_file, json_encode(build_slim_index($data), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG));
+    file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    file_put_contents($index_file, json_encode(build_slim_index($data), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_INVALID_UTF8_SUBSTITUTE));
 
     return $data;
 }

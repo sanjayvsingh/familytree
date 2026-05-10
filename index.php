@@ -72,6 +72,7 @@ if (isset($_GET['file'])) {
       <div id="tree-viewport">
         <div id="tree-canvas"></div>
       </div>
+      <button id="full-tree-close" aria-label="Exit full tree">&#x2190; Back to tree</button>
     </div>
     <aside id="detail-panel" hidden>
       <button id="panel-close" aria-label="Close">&times;</button>

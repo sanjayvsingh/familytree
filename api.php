@@ -1,9 +1,13 @@
 <?php
+ini_set('memory_limit', '512M');
+set_time_limit(0);
+
 require_once 'gedcom_parser.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache');
 header('X-Content-Type-Options: nosniff');
+
 
 $ged_dir = __DIR__ . '/gedcom/';
 $action  = $_GET['action'] ?? '';
