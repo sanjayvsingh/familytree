@@ -344,7 +344,10 @@ function buildPeopleList() {
   }).join('');
 
   list.querySelectorAll('li').forEach(li => {
-    li.addEventListener('click', () => navigateTo(li.dataset.id));
+    li.addEventListener('click', () => {
+      navigateTo(li.dataset.id);
+      document.getElementById('people-panel')?.classList.remove('mobile-open');
+    });
   });
 
   if (filter) {
@@ -783,6 +786,35 @@ document.getElementById('people-list').addEventListener('contextmenu', e => {
 
 document.addEventListener('click',   () => hideCtxMenu());
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
+
+// ── Mobile UI ──────────────────────────────────────────────────────────────
+
+(function () {
+  const searchBtn   = document.getElementById('mobile-search-btn');
+  const closeBtn    = document.getElementById('people-close');
+  const peoplePanel = document.getElementById('people-panel');
+
+  if (searchBtn && peoplePanel) {
+    searchBtn.addEventListener('click', () => {
+      peoplePanel.classList.add('mobile-open');
+      document.getElementById('people-search')?.focus();
+    });
+  }
+
+  if (closeBtn && peoplePanel) {
+    closeBtn.addEventListener('click', () => {
+      peoplePanel.classList.remove('mobile-open');
+    });
+  }
+
+  // Tap the tree (not a card) to dismiss the detail panel on mobile
+  document.getElementById('tree-viewport')?.addEventListener('click', e => {
+    if (e.target.closest('.person-card')) return;
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      document.getElementById('detail-panel').hidden = true;
+    }
+  });
+}());
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────
 

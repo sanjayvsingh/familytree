@@ -418,8 +418,76 @@ svg.connectors path.spouse-line {
 }
 #nav-back:hover { border-color: var(--accent); }
 
-@media (max-width: 640px) {
-  :root { --panel-w: 100vw; }
-  #detail-panel { position: fixed; bottom: 0; left: 0; right: 0; width: 100%; height: 60vh; border: none; border-top: 1px solid var(--border); z-index: 150; }
+/* ── Mobile search button (hidden on desktop) ────────────────────────── */
+#mobile-search-btn {
+  display: none;
+  margin-left: auto;
+  flex-shrink: 0;
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 4px;
+  color: #fff;
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+#mobile-search-btn:hover { background: rgba(255,255,255,.25); }
+
+/* ── People panel close button (hidden on desktop) ───────────────────── */
+#people-close {
+  display: none;
+  margin-left: auto;
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+}
+#people-close:hover { color: var(--text); }
+
+/* ── Mobile layout ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Hide desktop-only panels */
+  #people-panel   { display: none; }
   #upcoming-panel { display: none; }
+  #zoom-controls  { display: none; }
+
+  /* Show mobile search button */
+  #mobile-search-btn { display: flex; }
+
+  /* People panel becomes a full-screen search overlay */
+  #people-panel.mobile-open {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    z-index: 200;
+  }
+  #people-close { display: block; }
+  #people-header { display: flex; align-items: center; }
+
+  /* Larger touch targets in the list */
+  #people-list li { padding: 10px 16px; font-size: 14px; }
+
+  /* Detail panel slides up as a bottom sheet */
+  :root { --panel-w: 100vw; }
+  #detail-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    max-height: 65vh;
+    border: none;
+    border-radius: 14px 14px 0 0;
+    border-top: 1px solid var(--border);
+    z-index: 150;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.18);
+  }
+  /* Drag handle visual */
+  #detail-content { padding-top: 8px; }
+  #panel-close { top: 8px; }
 }

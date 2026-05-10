@@ -46,6 +46,9 @@ if (isset($_GET['file'])) {
       </form>
     </div>
     <?php endif; ?>
+    <?php if ($selected): ?>
+    <button id="mobile-search-btn" aria-label="Search people">&#x2315;</button>
+    <?php endif; ?>
   </div>
 </header>
 
@@ -59,7 +62,7 @@ if (isset($_GET['file'])) {
 <?php else: ?>
   <div id="app">
     <aside id="people-panel">
-      <div id="people-header">People</div>
+      <div id="people-header">People <button id="people-close" aria-label="Close">&times;</button></div>
       <div id="people-search-wrap">
         <input type="text" id="people-search" placeholder="Filter names…" autocomplete="off">
       </div>
