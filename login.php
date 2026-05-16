@@ -21,7 +21,7 @@
     </div>
 
     <div id="step-code" hidden>
-      <p class="login-hint">Check your email for the 6-digit code, or click the link in the email.</p>
+      <p class="login-hint">Check your email for the 3-digit code, or click the link in the email.</p>
       <label for="login-code">3-digit code</label>
       <input type="text" id="login-code" inputmode="numeric" pattern="[0-9]{3}"
              maxlength="3" placeholder="000" autocomplete="one-time-code">
@@ -128,7 +128,7 @@
     });
   });
 
-  // Auto-submit when all 6 digits are entered
+  // Auto-submit when all 3 digits are entered
   elCode.addEventListener('input', function () {
     if (this.value.replace(/\D/g, '').length === 3) btnVerify.click();
   });

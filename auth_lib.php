@@ -39,17 +39,6 @@ function auth_ensure_dirs(array $cfg): void {
 }
 
 function auth_get_ip(): string {
-    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP'] as $h) {
-        if (!empty($_SERVER[$h])) {
-            $ip = filter_var($_SERVER[$h], FILTER_VALIDATE_IP);
-            if ($ip !== false) return $ip;
-        }
-    }
-    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $parts = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-        $ip = filter_var(trim($parts[0]), FILTER_VALIDATE_IP);
-        if ($ip !== false) return $ip;
-    }
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
