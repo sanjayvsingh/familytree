@@ -721,7 +721,10 @@ function clearMe() {
   buildUpcoming();
 }
 
+let _distMapCache = { id: null, map: null };
+
 function buildDistanceMap(fromId) {
+  if (_distMapCache.id === fromId) return _distMapCache.map;
   const dist  = { [fromId]: 0 };
   const queue = [fromId];
   while (queue.length) {
@@ -746,6 +749,7 @@ function buildDistanceMap(fromId) {
       if (!(nb in dist)) { dist[nb] = dist[cur] + 1; queue.push(nb); }
     }
   }
+  _distMapCache = { id: fromId, map: dist };
   return dist;
 }
 
@@ -1181,6 +1185,7 @@ function exitFullTree() {
 // ── Bootstrap ───────────────────────────────────────────────────────────────
 
 async function init() {
+  _distMapCache = { id: null, map: null };
   canvas.innerHTML = '<p style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text-muted)">Loading…</p>';
 
   try {

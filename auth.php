@@ -105,6 +105,14 @@ if ($action === 'request') {
 
 // ── POST verify: code entry ────────────────────────────────────────────────
 if ($action === 'verify') {
+    $ip = auth_get_ip();
+    if (!auth_rate_check($ip)) {
+        $retry = auth_rate_retry_after($ip);
+        header('Retry-After: ' . $retry);
+        auth_json(429, ['error' => 'rate_limited', 'retry_after' => $retry]);
+    }
+    auth_rate_record($ip);
+
     $code  = trim($body['code'] ?? '');
     $email = $code ? auth_verify_code($code) : null;
 
@@ -112,7 +120,6 @@ if ($action === 'verify') {
         auth_json(401, ['error' => 'invalid_code']);
     }
 
-    $ip      = auth_get_ip();
     $ua      = $_SERVER['HTTP_USER_AGENT'] ?? '';
     $session = auth_create_session($email, $ip, $ua);
     auth_set_session_cookie($session);
@@ -138,9 +145,11 @@ if ($action === 'logout') {
     if ($token) auth_destroy_session($token);
 
     // Clear the cookie
+    $ssl = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
     setcookie('ft_session', '', [
         'expires'  => time() - 3600,
         'path'     => '/',
+        'secure'   => $ssl,
         'httponly' => true,
         'samesite' => 'Strict',
     ]);

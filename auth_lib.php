@@ -283,7 +283,9 @@ function auth_log(string $email, string $ip, string $ua): void {
         $ip,
         substr(str_replace(["\r", "\n", "\t"], ' ', $ua), 0, 200),
     ]) . "\n";
+    $oldUmask = umask(0177);
     file_put_contents($cfg['log_file'], $line, FILE_APPEND | LOCK_EX);
+    umask($oldUmask);
 }
 
 // ── Cleanup (called probabilistically) ───────────────────────────────────

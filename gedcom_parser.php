@@ -335,8 +335,14 @@ function get_cached_gedcom(string $filepath): array {
             "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n" .
             "<IfModule !mod_authz_core.c>\n    Order deny,allow\n    Deny from all\n</IfModule>\n");
     }
-    file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
-    file_put_contents($index_file, json_encode(build_slim_index($data), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_INVALID_UTF8_SUBSTITUTE));
+    $oldUmask = umask(0177);
+    if (!file_put_contents($cache_file, json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE))) {
+        error_log('familytree: failed to write cache ' . $cache_file);
+    }
+    if (!file_put_contents($index_file, json_encode(build_slim_index($data), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_INVALID_UTF8_SUBSTITUTE))) {
+        error_log('familytree: failed to write slim index ' . $index_file);
+    }
+    umask($oldUmask);
 
     return $data;
 }
