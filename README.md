@@ -2,6 +2,9 @@
 
 A browser-based family tree viewer that reads standard GEDCOM files and renders an interactive, navigable tree — no database or build step required.
 
+> [!NOTE]
+> This version requires an email account and SMTP2GO API key to protect the site with passwordless magic-link authentication — keeping bots and scrapers away from your family data. If you want a simpler setup with no auth, the **[Simple Tree View](https://github.com/sanjayvsingh/familytree/releases/tag/simple)** release is a single self-contained file with no login required.
+
 ## Features
 
 - **Interactive tree** — centered on any individual, showing grandparents, parents, siblings, spouses, and children at a glance
