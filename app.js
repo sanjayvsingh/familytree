@@ -321,6 +321,8 @@ function navigateTo(id) {
   renderTree(id);
   showDetail(id);
   highlightPeopleList(id);
+  const ind = getIndividual(id);
+  document.title = ind ? ind.name + ' — Family Tree' : 'Family Tree';
 }
 
 function buildPeopleList() {
@@ -764,10 +766,11 @@ function showCtxMenu(x, y, id) {
   ctxMenu.innerHTML = `
     <button data-action="me">${isMe ? 'Not me' : 'Set as me'}</button>
     <button data-action="full-tree">See full tree</button>
+    <button data-action="copy-link">Link to here</button>
   `;
   ctxMenu.hidden = false;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - 170) + 'px';
-  ctxMenu.style.top  = Math.min(y, window.innerHeight -  80) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight - 120) + 'px';
   ctxMenu.querySelector('[data-action="me"]').addEventListener('click', () => {
     isMe ? clearMe() : setAsMe(id);
     hideCtxMenu();
@@ -775,6 +778,19 @@ function showCtxMenu(x, y, id) {
   ctxMenu.querySelector('[data-action="full-tree"]').addEventListener('click', () => {
     hideCtxMenu();
     enterFullTree(id);
+  });
+  ctxMenu.querySelector('[data-action="copy-link"]').addEventListener('click', () => {
+    const url = window.location.origin + window.location.pathname
+              + '?file=' + encodeURIComponent(window.GEDCOM_FILE)
+              + '&person=' + encodeURIComponent(id);
+    const btn = ctxMenu.querySelector('[data-action="copy-link"]');
+    navigator.clipboard.writeText(url).then(() => {
+      btn.textContent = 'Copied!';
+      setTimeout(hideCtxMenu, 1200);
+    }).catch(() => {
+      btn.textContent = 'Copy failed';
+      setTimeout(hideCtxMenu, 1200);
+    });
   });
 }
 
@@ -1198,8 +1214,11 @@ async function init() {
   const ids = Object.keys(individuals);
   if (!ids.length) return;
 
+  const personParam = new URLSearchParams(window.location.search).get('person');
   const savedId = getMeId();
-  const startId = savedId || ids.reduce((best, id) => {
+  const startId = (personParam && individuals[personParam])
+    ? personParam
+    : savedId || ids.reduce((best, id) => {
     const ind       = individuals[id];
     const bestInd   = individuals[best];
     const score     = (ind.fams?.length || 0) * 2     + (ind.famc?.length || 0);

@@ -15,7 +15,7 @@
 
     <div id="step-email">
       <label for="login-email">Email address</label>
-      <input type="email" id="login-email" autocomplete="email" placeholder="you@example.com" spellcheck="false">
+      <input type="email" id="login-email" autocomplete="email" placeholder="you@example.com" spellcheck="false" autofocus>
       <button id="btn-send" type="button">Send sign-in link</button>
       <div id="login-error" class="login-error" hidden></div>
     </div>
