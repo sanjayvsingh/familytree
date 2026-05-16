@@ -1,4 +1,10 @@
 <?php
+require_once __DIR__ . '/auth_lib.php';
+if (!auth_validate_session($_COOKIE['ft_session'] ?? '')) {
+    include __DIR__ . '/login.php';
+    exit;
+}
+
 $ged_dir   = __DIR__ . '/gedcom/';
 $available = glob($ged_dir . '*.ged') ?: [];
 $available = array_map('basename', $available);

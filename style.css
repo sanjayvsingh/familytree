@@ -488,6 +488,135 @@ body.full-tree-mode #detail-panel { display: none !important; }
 #full-tree-close:hover { background: var(--bg); border-color: var(--accent); }
 body.full-tree-mode #full-tree-close { display: block; }
 
+/* ── Login screen ────────────────────────────────────────────────────── */
+body.login-mode {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+#login-wrap {
+  width: 100%;
+  max-width: 400px;
+  padding: 24px 16px;
+}
+
+#login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 40px 32px;
+  box-shadow: 0 4px 24px rgba(44, 31, 20, .12);
+}
+
+#login-card h1 {
+  font-size: 22px;
+  color: var(--primary);
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.login-sub {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+.login-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+#login-card label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+#login-card input[type="email"],
+#login-card input[type="text"] {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+#login-card input:focus { border-color: var(--accent); }
+
+#login-code {
+  font-size: 28px;
+  letter-spacing: .2em;
+  text-align: center;
+}
+
+#login-card button:not(.btn-ghost) {
+  display: block;
+  width: 100%;
+  padding: 11px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+#login-card button:not(.btn-ghost):hover:not(:disabled) { background: var(--primary-lt); }
+#login-card button:disabled { opacity: .6; cursor: default; }
+
+.btn-ghost {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 8px;
+  text-decoration: underline;
+}
+
+.login-error {
+  color: #b91c1c;
+  font-size: 13px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* ── Logout button (header) ──────────────────────────────────────────── */
+#logout-btn {
+  margin-left: auto; /* pushes right when search button is absent */
+  flex-shrink: 0;
+  background: rgba(255,255,255,.15);
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 4px;
+  color: #fff;
+  padding: 0 12px;
+  height: 36px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#logout-btn:hover { background: rgba(255,255,255,.25); }
+/* When search button is present it already claims the auto margin */
+#mobile-search-btn + #logout-btn { margin-left: 8px; }
+
 /* ── Mobile layout ───────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   /* Hide desktop-only panels */

@@ -5,8 +5,26 @@ const individuals = {};
 const families    = {};
 const detailCache = new Map();
 
+// ── Auth helpers ───────────────────────────────────────────────────────────
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('familytree:session');
+  return token ? { 'Authorization': 'Bearer ' + token } : {};
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem('familytree:session');
+  document.cookie = 'ft_session=; max-age=0; path=/; SameSite=Strict';
+  window.location.reload();
+}
+
+// ── API calls ──────────────────────────────────────────────────────────────
+
 async function fetchIndex() {
-  const res = await fetch(`api.php?action=index&file=${encodeURIComponent(window.GEDCOM_FILE)}`);
+  const res = await fetch(`api.php?action=index&file=${encodeURIComponent(window.GEDCOM_FILE)}`, {
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401) { handleUnauthorized(); return; }
   if (!res.ok) throw new Error('Index fetch failed');
   const data = await res.json();
   Object.assign(individuals, data.individuals);
@@ -15,7 +33,10 @@ async function fetchIndex() {
 
 async function fetchPerson(id) {
   if (detailCache.has(id)) return detailCache.get(id);
-  const res = await fetch(`api.php?action=person&file=${encodeURIComponent(window.GEDCOM_FILE)}&id=${encodeURIComponent(id)}`);
+  const res = await fetch(`api.php?action=person&file=${encodeURIComponent(window.GEDCOM_FILE)}&id=${encodeURIComponent(id)}`, {
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401) { handleUnauthorized(); return null; }
   if (!res.ok) throw new Error('Person fetch failed');
   const data = await res.json();
   detailCache.set(id, data);
@@ -1130,6 +1151,31 @@ function exitFullTree() {
       document.getElementById('detail-panel').hidden = true;
     }
   });
+}());
+
+// ── Logout button ──────────────────────────────────────────────────────────
+
+(function () {
+  const headerInner = document.querySelector('.header-inner');
+  if (!headerInner) return;
+  const btn = document.createElement('button');
+  btn.id = 'logout-btn';
+  btn.textContent = 'Sign out';
+  btn.addEventListener('click', function () {
+    fetch('auth.php?action=logout', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    }).finally(function () {
+      handleUnauthorized();
+    });
+  });
+  // Insert after the search icon if present, so both sit together on the right
+  const searchBtn = document.getElementById('mobile-search-btn');
+  if (searchBtn) {
+    searchBtn.insertAdjacentElement('afterend', btn);
+  } else {
+    headerInner.appendChild(btn);
+  }
 }());
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────

@@ -1,4 +1,18 @@
 <?php
+require_once __DIR__ . '/auth_lib.php';
+$_bearer = auth_get_bearer();
+// Some Apache configs strip the Authorization header before PHP sees it;
+// the ft_session cookie carries the same raw token as a reliable fallback.
+if (!$_bearer) {
+    $_bearer = $_COOKIE['ft_session'] ?? '';
+}
+if (!$_bearer || !auth_validate_session($_bearer)) {
+    http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
+
 ini_set('memory_limit', '512M');
 set_time_limit(0);
 

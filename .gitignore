@@ -6,3 +6,7 @@
 
 # Parser cache — generated at runtime, never commit
 /cache/
+
+# Auth runtime data and secrets — never commit
+/auth/
+/config.php
