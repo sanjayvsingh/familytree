@@ -334,6 +334,19 @@ svg.connectors path.spouse-line {
 .detail-label { color: var(--text-muted); min-width: 70px; }
 .detail-val { color: var(--text); }
 
+.detail-note { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
+.detail-note a { color: var(--accent); }
+.note-rest, .note-less-btn { display: none; }
+.detail-note.note-expanded .note-rest { display: inline; }
+.detail-note.note-expanded .note-less-btn { display: inline; }
+.detail-note.note-expanded .note-ellipsis,
+.detail-note.note-expanded .note-more-btn { display: none; }
+.note-toggle {
+  background: none; border: none; padding: 0 1px;
+  color: var(--accent); font-size: 12px; cursor: pointer;
+  text-decoration: underline; white-space: nowrap;
+}
+
 .rel-link {
   display: block;
   padding: 4px 8px;

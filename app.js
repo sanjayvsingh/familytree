@@ -442,6 +442,36 @@ document.getElementById('zoom-reset').addEventListener('click', () => { zoomScal
 
 // ── Detail panel ───────────────────────────────────────────────────────────
 
+const NOTE_LIMIT = 200;
+
+function linkifyNote(text) {
+  const urlRe = /https?:\/\/[^\s<>"']+/g;
+  let html = '', last = 0, m;
+  while ((m = urlRe.exec(text)) !== null) {
+    html += esc(text.slice(last, m.index));
+    html += `<a href="${esc(m[0])}" target="_blank" rel="noopener noreferrer">${esc(m[0])}</a>`;
+    last = m.index + m[0].length;
+  }
+  return html + esc(text.slice(last));
+}
+
+function buildNoteHtml(note) {
+  if (!note) return '';
+  if (note.length <= NOTE_LIMIT) {
+    return `<div class="detail-section"><h3>Notes</h3><p class="detail-note">${linkifyNote(note)}</p></div>`;
+  }
+  const cut     = note.lastIndexOf(' ', NOTE_LIMIT) || NOTE_LIMIT;
+  const preview = note.slice(0, cut);
+  const rest    = note.slice(cut).trimStart();
+  return `<div class="detail-section"><h3>Notes</h3>` +
+    `<p class="detail-note">${linkifyNote(preview)}` +
+    `<span class="note-ellipsis">… </span>` +
+    `<button class="note-more-btn note-toggle">See more</button>` +
+    `<span class="note-rest">${linkifyNote(rest)}</span>` +
+    `<button class="note-less-btn note-toggle">See less</button>` +
+    `</p></div>`;
+}
+
 async function showDetail(id) {
   const slim  = getIndividual(id);
   if (!slim) return;
@@ -551,15 +581,11 @@ async function showDetail(id) {
   });
   const gcHtml = gcIds.map(gcId => relLink(gcId, 'Grandchild')).join('');
 
-  const noteHtml = ind.note
-    ? `<div class="detail-section"><h3>Notes</h3><p style="font-size:13px;white-space:pre-wrap">${esc(ind.note)}</p></div>`
-    : '';
-
   content.innerHTML = `
     <h2>${esc(ind.name)}</h2>
     <div class="detail-sub">${esc(ind.sex === 'M' ? 'Male' : ind.sex === 'F' ? 'Female' : '')}${lifespan(ind) ? '  ·  ' + esc(lifespan(ind)) : ''}</div>
     ${rows.length ? `<div class="detail-section"><h3>Vital records</h3>${rows.join('')}</div>` : ''}
-    ${noteHtml}
+    ${buildNoteHtml(ind.note)}
     ${parentHtml ? `<div class="detail-section"><h3>Parents</h3>${parentHtml}</div>` : ''}
     ${spouseHtml ? `<div class="detail-section"><h3>Spouses &amp; children</h3>${spouseHtml}</div>` : ''}
     ${gcHtml     ? `<div class="detail-section"><h3>Grandchildren</h3>${gcHtml}</div>` : ''}
@@ -569,6 +595,16 @@ async function showDetail(id) {
   content.querySelectorAll('.rel-link').forEach(el => {
     el.addEventListener('click', () => handlePersonClick(el.dataset.id));
   });
+
+  const noteP = content.querySelector('.detail-note');
+  if (noteP) {
+    const moreBtn = noteP.querySelector('.note-more-btn');
+    const lessBtn = noteP.querySelector('.note-less-btn');
+    if (moreBtn) {
+      moreBtn.addEventListener('click', () => noteP.classList.add('note-expanded'));
+      lessBtn.addEventListener('click', () => noteP.classList.remove('note-expanded'));
+    }
+  }
 }
 
 function relLink(id, role, extra = '') {
