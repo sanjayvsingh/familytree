@@ -71,7 +71,7 @@ switch ($action) {
         $prompt = trim($input['prompt'] ?? '');
         if (!$prompt) { echo json_encode(['summary' => '']); break; }
 
-        $models  = ['gemini-2.0-flash-lite', 'gemini-3.0-flash'];
+        $models  = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite'];
         $payload = json_encode([
             'contents'         => [['parts' => [['text' => $prompt]]]],
             'generationConfig' => ['maxOutputTokens' => 80, 'temperature' => 0.4],
