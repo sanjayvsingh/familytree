@@ -783,3 +783,66 @@ body.pick-mode #people-list li { cursor: crosshair; }
   padding: 12px 0;
   text-align: center;
 }
+
+/* ── Path view (canvas overlay after modal closes) ───────────────────────── */
+#path-view-banner {
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+}
+#path-view-banner[hidden] { display: none !important; }
+#path-view-title { font-weight: 600; }
+#path-view-copy-link,
+#path-view-close {
+  background: rgba(255,255,255,.2);
+  border: 1px solid rgba(255,255,255,.4);
+  border-radius: 4px;
+  color: #fff;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#path-view-copy-link:hover,
+#path-view-close:hover { background: rgba(255,255,255,.35); }
+
+body.path-view-mode #people-panel,
+body.path-view-mode #upcoming-panel,
+body.path-view-mode #detail-panel { display: none !important; }
+
+/* Path node cards */
+.person-card.path-node { border-color: var(--accent); }
+
+.person-card.path-endpoint-from,
+.person-card.path-endpoint-to {
+  background: rgba(192,131,74,.07);
+  border-color: var(--accent);
+  border-width: 3px;
+  box-shadow: 0 0 0 4px rgba(192,131,74,.28), 0 2px 8px rgba(0,0,0,.12);
+}
+
+.person-card.path-apex {
+  background: #fef9f5;
+  border-color: var(--primary);
+  border-width: 3px;
+  box-shadow: 0 0 0 3px rgba(92,61,46,.25);
+}
+
+.card-path-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: .85;
+}
+

@@ -318,6 +318,7 @@ function addPath(svg, d) {
 // ── Navigation ─────────────────────────────────────────────────────────────
 
 function navigateTo(id) {
+  if (pathViewActive) clearPathView();
   renderTree(id);
   showDetail(id);
   highlightPeopleList(id);
@@ -880,8 +881,9 @@ document.addEventListener('click',   () => hideCtxMenu());
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     hideCtxMenu();
-    if (pickModeActive) cancelPickMode();
-    hidePathResult();
+    if (pickModeActive) { cancelPickMode(); return; }
+    if (!pathOverlay.hidden) { hidePathResult(); return; }
+    if (pathViewActive) { exitPathView(); return; }
   }
 });
 
@@ -892,6 +894,12 @@ let fullTreePrevFocusId = null;
 
 let pickModeActive = false;
 let pickModeFromId = null;
+
+let pathViewActive      = false;
+let pathViewPrevFocusId = null;
+let storedPath          = null;
+let storedFromId        = null;
+let storedToId          = null;
 
 function buildFullTreeLayout(rootId) {
   const addedSet = new Set();
@@ -1138,6 +1146,49 @@ function drawFullTreeConnectors(svg, positioned) {
   }
 }
 
+function drawPathViewConnectors(svg, positioned) {
+  const byId = Object.fromEntries(positioned.map(n => [n.id, n]));
+
+  function curve(x1, y1, x2, y2) {
+    const my = (y1 + y2) / 2;
+    return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+  }
+
+  for (const fam of Object.values(families)) {
+    const hNode    = fam.husb ? byId[fam.husb] : null;
+    const wNode    = fam.wife ? byId[fam.wife] : null;
+    const children = (fam.children || []).map(id => byId[id]).filter(Boolean);
+
+    // Spouse line (dashed, unchanged)
+    if (hNode && wNode && hNode.row === wNode.row) {
+      const left  = hNode.x <= wNode.x ? hNode : wNode;
+      const right = hNode.x <= wNode.x ? wNode : hNode;
+      const sp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      sp.classList.add('spouse-line');
+      sp.setAttribute('d', `M ${left.x + CARD_W} ${left.y + CARD_H / 2} L ${right.x} ${right.y + CARD_H / 2}`);
+      svg.appendChild(sp);
+    }
+
+    if (!children.length) continue;
+
+    let pX, pY;
+    if (hNode && wNode && hNode.row === wNode.row) {
+      pX = ((hNode.x + CARD_W / 2) + (wNode.x + CARD_W / 2)) / 2;
+      pY = hNode.y + CARD_H;
+    } else if (hNode) {
+      pX = hNode.x + CARD_W / 2; pY = hNode.y + CARD_H;
+    } else if (wNode) {
+      pX = wNode.x + CARD_W / 2; pY = wNode.y + CARD_H;
+    } else {
+      continue;
+    }
+
+    for (const ch of children) {
+      addPath(svg, curve(pX, pY, ch.x + CARD_W / 2, ch.y));
+    }
+  }
+}
+
 function renderFullTree(rootId) {
   canvas.innerHTML = '';
   const nodes = buildFullTreeLayout(rootId);
@@ -1206,6 +1257,30 @@ pickBanner.innerHTML = `<span id="pick-banner-text"></span><button id="pick-bann
 document.body.insertBefore(pickBanner, document.querySelector('main'));
 document.getElementById('pick-banner-cancel').addEventListener('click', cancelPickMode);
 
+const pathViewBanner = document.createElement('div');
+pathViewBanner.id = 'path-view-banner';
+pathViewBanner.hidden = true;
+pathViewBanner.innerHTML = `<span id="path-view-title"></span><button id="path-view-copy-link">Copy link</button><button id="path-view-close">Close path view</button>`;
+document.body.insertBefore(pathViewBanner, document.querySelector('main'));
+document.getElementById('path-view-close').addEventListener('click', exitPathView);
+document.getElementById('path-view-copy-link').addEventListener('click', () => {
+  const filePrefix = window.GEDCOM_COUNT > 1
+    ? '?file=' + encodeURIComponent(window.GEDCOM_FILE) + '&'
+    : '?';
+  const url = window.location.origin + window.location.pathname
+            + filePrefix
+            + 'person=' + encodeURIComponent(storedFromId)
+            + '&pathto=' + encodeURIComponent(storedToId);
+  const btn = document.getElementById('path-view-copy-link');
+  navigator.clipboard.writeText(url).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy link'; }, 1800);
+  }).catch(() => {
+    btn.textContent = 'Failed';
+    setTimeout(() => { btn.textContent = 'Copy link'; }, 1800);
+  });
+});
+
 const pathOverlay = document.createElement('div');
 pathOverlay.id = 'path-overlay';
 pathOverlay.hidden = true;
@@ -1260,6 +1335,10 @@ const VIA_LABEL = {
 };
 
 function showPathResult(path, fromId, toId) {
+  storedPath   = (path && path.length >= 2) ? path : null;
+  storedFromId = fromId;
+  storedToId   = toId;
+
   const body = document.getElementById('path-overlay-body');
 
   if (!path) {
@@ -1299,7 +1378,11 @@ function showPathResult(path, fromId, toId) {
   body.innerHTML = parts.join('');
 
   body.querySelectorAll('.path-step').forEach(el => {
-    el.addEventListener('click', () => { hidePathResult(); navigateTo(el.dataset.id); });
+    el.addEventListener('click', () => {
+      pathOverlay.hidden = true;
+      storedPath = null;
+      navigateTo(el.dataset.id);
+    });
   });
 
   pathOverlay.hidden = false;
@@ -1334,14 +1417,185 @@ function showPathResult(path, fromId, toId) {
         summaryEl.textContent = data.summary;
         summaryEl.classList.remove('path-summary-loading');
       } else {
+        console.warn('Gemini summary: no summary in response', data);
         summaryEl.remove();
       }
     })
-    .catch(() => summaryEl.remove());
+    .catch(err => {
+      console.error('Gemini summary failed:', err);
+      summaryEl.remove();
+    });
 }
 
 function hidePathResult() {
   pathOverlay.hidden = true;
+  if (storedPath) enterPathView();
+}
+
+// ── Path view (show path nodes on canvas after modal closes) ─────────────
+
+function findApexIndex(path) {
+  // Apex is the last node before the path starts descending (first 'child' step).
+  // This handles spouse hops interspersed in the ascending portion correctly.
+  for (let i = 1; i < path.length; i++) {
+    if (path[i].via === 'child') return i - 1;
+  }
+  return path.length - 1;
+}
+
+function enterPathView() {
+  if (!storedPath || storedPath.length < 2) return;
+  if (fullTreeActive) {
+    fullTreeActive = false;
+    document.body.classList.remove('full-tree-mode');
+  }
+  pathViewActive      = true;
+  pathViewPrevFocusId = focusId;
+  document.body.classList.add('path-view-mode');
+  const fullName = ind => (ind?.name || '?').replace(/[()]/g, '').trim();
+  document.getElementById('path-view-title').textContent =
+    `${fullName(getIndividual(storedFromId))} → ${fullName(getIndividual(storedToId))}`;
+  pathViewBanner.hidden = false;
+  renderPathView(storedPath, storedFromId, storedToId);
+}
+
+function renderPathView(path, fromId, toId) {
+  canvas.innerHTML = '';
+  const apexIdx = findApexIndex(path);
+  const apexId  = path[apexIdx].id;
+
+  // Each node gets (col, row). Apex is at (0,0).
+  // Left branch fans down-left: each child generation shifts one col left.
+  // Right branch fans down-right: each child generation shifts one col right.
+  // Spouse hops stay on the same row and shift one col in the current direction.
+  // co-parents always go at col+1 relative to the path node they're paired with.
+  // With this diagonal layout, no two distinct (col,row) pairs collide:
+  //   left-branch path: col == -row; right-branch path: col == +row.
+  //   co-parents: col == -(row-1) for left, col == row+1 for right — no collisions.
+
+  const placed = new Map(); // id → {id, col, row}
+  function placeNode(id, col, row) {
+    if (!placed.has(id)) placed.set(id, { id, col, row });
+  }
+
+  placeNode(apexId, 0, 0);
+
+  // Left branch: walk from apex toward fromId.
+  // path[i+1].via = relationship FROM path[i] TO path[i+1]:
+  //   'parent' → path[i+1] is a parent of path[i], so path[i] is one row further down.
+  //   'spouse' → same generation, side by side.
+  let lRow = 0, lCol = 0;
+  for (let i = apexIdx - 1; i >= 0; i--) {
+    const via = path[i + 1].via;
+    if (via === 'spouse') {
+      lCol -= 1;
+      placeNode(path[i].id, lCol, lRow);
+    } else {
+      lRow++;
+      lCol = -lRow;
+      placeNode(path[i].id, lCol, lRow);
+    }
+  }
+
+  // Right branch: walk from apex toward toId.
+  // path[i].via = relationship FROM path[i-1] TO path[i]:
+  //   'child' → path[i] is a child of path[i-1], so one row further down.
+  //   'spouse' → same generation.
+  let rRow = 0, rCol = 0;
+  for (let i = apexIdx + 1; i < path.length; i++) {
+    const via = path[i].via;
+    if (via === 'spouse') {
+      rCol += 1;
+      placeNode(path[i].id, rCol, rRow);
+    } else {
+      rRow++;
+      rCol = rRow;
+      placeNode(path[i].id, rCol, rRow);
+    }
+  }
+
+  // Co-parents: for each parent↔child step in the path, find the other parent
+  // in the GEDCOM family record and add them at col+1 of the path node.
+  for (let i = 0; i < path.length - 1; i++) {
+    const aId = path[i].id, bId = path[i + 1].id, via = path[i + 1].via;
+    let parentId = null, childId = null;
+    if (via === 'parent')      { parentId = bId; childId = aId; }
+    else if (via === 'child')  { parentId = aId; childId = bId; }
+    else continue;
+
+    for (const fam of Object.values(families)) {
+      if (!((fam.husb === parentId || fam.wife === parentId) &&
+            (fam.children || []).includes(childId))) continue;
+      const spouseId = fam.husb === parentId ? fam.wife : fam.husb;
+      if (spouseId) {
+        const pn = placed.get(parentId);
+        if (pn) placeNode(spouseId, pn.col + 1, pn.row);
+      }
+      break;
+    }
+  }
+
+  // Convert (col, row) to pixel positions
+  const positioned = [...placed.values()]
+    .filter(n => getIndividual(n.id))
+    .map(n => ({ ...n, x: n.col * COL_W - CARD_W / 2, y: n.row * ROW_H - CARD_H / 2 }));
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('connectors');
+  canvas.appendChild(svg);
+  drawPathViewConnectors(svg, positioned);
+
+  const pathSet = new Set(path.map(s => s.id));
+  for (const n of positioned) {
+    const ind = getIndividual(n.id);
+    const card = document.createElement('div');
+    card.className = `person-card ${cardSexClass(ind)}`;
+    if (pathSet.has(n.id))              card.classList.add('path-node');
+    if (n.id === fromId)                card.classList.add('path-endpoint-from');
+    if (n.id === toId)                  card.classList.add('path-endpoint-to');
+    if (n.id === apexId && apexIdx > 0) card.classList.add('path-apex');
+    card.style.left = n.x + 'px';
+    card.style.top  = n.y + 'px';
+    card.dataset.id = n.id;
+    const ls      = cardDates(ind);
+    const isMe    = n.id === getMeId();
+    const isEndpt = n.id === fromId || n.id === toId;
+    card.innerHTML = `
+      ${isEndpt ? '<div class="card-path-dot"></div>' : ''}
+      <div class="card-name">${esc(ind.name)}</div>
+      ${ls ? `<div class="card-dates">${esc(ls)}</div>` : ''}
+      ${isMe ? '<div class="card-me">me</div>' : ''}
+    `;
+    card.addEventListener('click', () => handlePersonClick(n.id));
+    canvas.appendChild(card);
+  }
+
+  if (positioned.length) {
+    const cxs = positioned.map(n => n.x + CARD_W / 2);
+    const cys = positioned.map(n => n.y + CARD_H / 2);
+    const cx = (Math.min(...cxs) + Math.max(...cxs)) / 2;
+    const cy = (Math.min(...cys) + Math.max(...cys)) / 2;
+    const treeW = Math.max(...cxs) - Math.min(...cxs) + CARD_W + 80;
+    const treeH = Math.max(...cys) - Math.min(...cys) + CARD_H + 80;
+    const vw = viewport.clientWidth  || 800;
+    const vh = viewport.clientHeight || 600;
+    zoomScale = Math.min(vw / treeW, vh / treeH, 1.0);
+    panX = -cx * zoomScale;
+    panY = -cy * zoomScale;
+    applyTransform();
+  }
+}
+
+function clearPathView() {
+  pathViewActive = false;
+  document.body.classList.remove('path-view-mode');
+  pathViewBanner.hidden = true;
+}
+
+function exitPathView() {
+  const restoreId = pathViewPrevFocusId || focusId;
+  clearPathView();
+  if (restoreId) navigateTo(restoreId);
 }
 
 // ── People panel & upcoming toggle ────────────────────────────────────────
@@ -1436,7 +1690,9 @@ async function init() {
   const ids = Object.keys(individuals);
   if (!ids.length) return;
 
-  const personParam = new URLSearchParams(window.location.search).get('person');
+  const params     = new URLSearchParams(window.location.search);
+  const personParam = params.get('person');
+  const pathtoParam = params.get('pathto');
   const savedId = getMeId();
   const startId = (personParam && individuals[personParam])
     ? personParam
@@ -1451,6 +1707,14 @@ async function init() {
   buildPeopleList();
   navigateTo(startId);
   buildUpcoming();
+
+  if (pathtoParam && individuals[pathtoParam] && pathtoParam !== startId) {
+    const pathResult = findPath(startId, pathtoParam);
+    storedPath   = pathResult;
+    storedFromId = startId;
+    storedToId   = pathtoParam;
+    if (pathResult) enterPathView();
+  }
 }
 
 init();

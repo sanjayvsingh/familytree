@@ -62,11 +62,15 @@ switch ($action) {
     case 'gemini_summary':
         $cfg    = require __DIR__ . '/config.php';
         $apiKey = $cfg['gemini_key'] ?? '';
-        if (!$apiKey) { echo json_encode(['summary' => '']); break; }
+        if (!$apiKey) {
+            error_log('Gemini: gemini_key missing from config');
+            echo json_encode(['summary' => '', 'error' => 'API key not configured']);
+            break;
+        }
         $input  = json_decode(file_get_contents('php://input'), true);
         $prompt = trim($input['prompt'] ?? '');
         if (!$prompt) { echo json_encode(['summary' => '']); break; }
-        $url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' . urlencode($apiKey);
+        $url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=' . urlencode($apiKey);
         $payload = json_encode([
             'contents'        => [['parts' => [['text' => $prompt]]]],
             'generationConfig' => ['maxOutputTokens' => 80, 'temperature' => 0.4],
@@ -79,10 +83,28 @@ switch ($action) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 12,
         ]);
-        $resp = curl_exec($ch);
+        $resp     = curl_exec($ch);
+        $curlErr  = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+        if ($curlErr) {
+            error_log("Gemini: cURL error: $curlErr");
+            echo json_encode(['summary' => '', 'error' => "cURL: $curlErr"]);
+            break;
+        }
         $gemini = json_decode($resp, true);
-        $text   = $gemini['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        if ($httpCode !== 200 || isset($gemini['error'])) {
+            $msg = $gemini['error']['message'] ?? "HTTP $httpCode";
+            error_log("Gemini: API error ($httpCode): $msg");
+            echo json_encode(['summary' => '', 'error' => $msg]);
+            break;
+        }
+        $text = $gemini['candidates'][0]['content']['parts'][0]['text'] ?? '';
+        if ($text === '') {
+            error_log('Gemini: empty text in response: ' . $resp);
+            echo json_encode(['summary' => '', 'error' => 'empty response']);
+            break;
+        }
         echo json_encode(['summary' => trim($text)], JSON_UNESCAPED_UNICODE);
         break;
 
