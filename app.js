@@ -559,11 +559,11 @@ async function showDetail(id) {
     <h2>${esc(ind.name)}</h2>
     <div class="detail-sub">${esc(ind.sex === 'M' ? 'Male' : ind.sex === 'F' ? 'Female' : '')}${lifespan(ind) ? '  ·  ' + esc(lifespan(ind)) : ''}</div>
     ${rows.length ? `<div class="detail-section"><h3>Vital records</h3>${rows.join('')}</div>` : ''}
+    ${noteHtml}
     ${parentHtml ? `<div class="detail-section"><h3>Parents</h3>${parentHtml}</div>` : ''}
     ${spouseHtml ? `<div class="detail-section"><h3>Spouses &amp; children</h3>${spouseHtml}</div>` : ''}
     ${gcHtml     ? `<div class="detail-section"><h3>Grandchildren</h3>${gcHtml}</div>` : ''}
     ${sibHtml    ? `<div class="detail-section"><h3>Siblings</h3>${sibHtml}</div>` : ''}
-    ${noteHtml}
   `;
 
   content.querySelectorAll('.rel-link').forEach(el => {
