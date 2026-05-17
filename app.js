@@ -1303,6 +1303,41 @@ function showPathResult(path, fromId, toId) {
   });
 
   pathOverlay.hidden = false;
+
+  // Fetch AI narrative summary using first names only (no dates or full names sent externally)
+  const firstNameOnly = name => (name || '').split(' ')[0].replace(/[()]/g, '') || 'Person';
+  const viaDesc = { parent: 'child of', child: 'parent of', spouse: 'spouse of' };
+  const steps = [];
+  for (let i = 0; i < path.length - 1; i++) {
+    const ind = getIndividual(path[i].id);
+    const nextInd = getIndividual(path[i + 1].id);
+    steps.push(`${firstNameOnly(ind ? ind.name : '')} is ${viaDesc[path[i+1].via] || 'related to'} ${firstNameOnly(nextInd ? nextInd.name : '')}`);
+  }
+  const fromFirst = firstNameOnly(fromInd ? fromInd.name : fromId);
+  const toFirst   = firstNameOnly(toInd   ? toInd.name   : toId);
+  const prompt = `Family tree path: ${steps.join('; ')}. In up to 2 sentences and under 40 words, describe the family relationship between ${fromFirst} and ${toFirst}.`;
+
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'path-summary path-summary-loading';
+  summaryEl.textContent = 'Generating summary…';
+  body.prepend(summaryEl);
+
+  fetch(`api.php?action=gemini_summary&file=${encodeURIComponent(window.GEDCOM_FILE)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ prompt }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.summary) {
+        summaryEl.textContent = data.summary;
+        summaryEl.classList.remove('path-summary-loading');
+      } else {
+        summaryEl.remove();
+      }
+    })
+    .catch(() => summaryEl.remove());
 }
 
 function hidePathResult() {
