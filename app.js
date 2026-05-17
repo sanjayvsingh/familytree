@@ -465,10 +465,10 @@ function buildNoteHtml(note) {
   const rest    = note.slice(cut).trimStart();
   return `<div class="detail-section"><h3>Notes</h3>` +
     `<p class="detail-note">${linkifyNote(preview)}` +
-    `<span class="note-ellipsis">… </span>` +
-    `<button class="note-more-btn note-toggle">See more</button>` +
-    `<span class="note-rest">${linkifyNote(rest)}</span>` +
-    `<button class="note-less-btn note-toggle">See less</button>` +
+    `<span class="note-ellipsis">…</span> ` +
+    `<button class="note-more-btn note-toggle">see more</button>` +
+    `<span class="note-rest">${linkifyNote(rest)}</span> ` +
+    `<button class="note-less-btn note-toggle">see less</button>` +
     `</p></div>`;
 }
 
