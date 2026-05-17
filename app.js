@@ -232,7 +232,7 @@ function renderTree(rootId) {
       ${ls ? `<div class="card-dates">${esc(ls)}</div>` : ''}
       ${isMe ? '<div class="card-me">me</div>' : ''}
     `;
-    card.addEventListener('click', () => navigateTo(n.id));
+    card.addEventListener('click', () => handlePersonClick(n.id));
     canvas.appendChild(card);
   }
 
@@ -357,8 +357,8 @@ function buildPeopleList() {
 
   list.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => {
-      navigateTo(li.dataset.id);
-      document.getElementById('people-panel')?.classList.remove('mobile-open');
+      handlePersonClick(li.dataset.id);
+      if (!pickModeActive) document.getElementById('people-panel')?.classList.remove('mobile-open');
     });
   });
 
@@ -566,7 +566,7 @@ async function showDetail(id) {
   `;
 
   content.querySelectorAll('.rel-link').forEach(el => {
-    el.addEventListener('click', () => navigateTo(el.dataset.id));
+    el.addEventListener('click', () => handlePersonClick(el.dataset.id));
   });
 }
 
@@ -682,7 +682,7 @@ function buildUpcoming() {
   }).join('');
 
   upcomingList.querySelectorAll('.upcoming-card').forEach(el => {
-    el.addEventListener('click', () => navigateTo(el.dataset.id));
+    el.addEventListener('click', () => handlePersonClick(el.dataset.id));
   });
 }
 
@@ -755,6 +755,65 @@ function buildDistanceMap(fromId) {
   return dist;
 }
 
+function findPath(fromId, toId) {
+  if (fromId === toId) return [{ id: fromId, via: null }];
+
+  const pred    = {};
+  const visited = new Set([fromId]);
+  const queue   = [fromId];
+
+  outer:
+  while (queue.length) {
+    const cur = queue.shift();
+    const ind = individuals[cur];
+    if (!ind) continue;
+
+    for (const famId of ind.famc || []) {
+      const fam = families[famId];
+      if (!fam) continue;
+      for (const pid of [fam.husb, fam.wife]) {
+        if (!pid || visited.has(pid)) continue;
+        visited.add(pid);
+        pred[pid] = { from: cur, via: 'parent' };
+        if (pid === toId) break outer;
+        queue.push(pid);
+      }
+    }
+
+    for (const famId of ind.fams || []) {
+      const fam = families[famId];
+      if (!fam) continue;
+      const spId = fam.husb === cur ? fam.wife : fam.husb;
+      if (spId && !visited.has(spId)) {
+        visited.add(spId);
+        pred[spId] = { from: cur, via: 'spouse' };
+        if (spId === toId) break outer;
+        queue.push(spId);
+      }
+      for (const chId of fam.children || []) {
+        if (!chId || visited.has(chId)) continue;
+        visited.add(chId);
+        pred[chId] = { from: cur, via: 'child' };
+        if (chId === toId) break outer;
+        queue.push(chId);
+      }
+    }
+  }
+
+  if (!pred[toId]) return null;
+
+  const path = [];
+  let cur = toId;
+  while (cur !== fromId) {
+    const { from, via } = pred[cur];
+    path.push({ id: cur, via });
+    cur = from;
+  }
+  path.push({ id: fromId, via: null });
+  path.reverse();
+  return path;
+}
+
 // Context menu
 const ctxMenu = document.createElement('div');
 ctxMenu.id = 'ctx-menu';
@@ -767,10 +826,11 @@ function showCtxMenu(x, y, id) {
     <button data-action="me">${isMe ? 'Not me' : 'Set as me'}</button>
     <button data-action="full-tree">See full tree</button>
     <button data-action="copy-link">Link to here</button>
+    <button data-action="find-path">Find connection to…</button>
   `;
   ctxMenu.hidden = false;
   ctxMenu.style.left = Math.min(x, window.innerWidth  - 170) + 'px';
-  ctxMenu.style.top  = Math.min(y, window.innerHeight - 120) + 'px';
+  ctxMenu.style.top  = Math.min(y, window.innerHeight - 150) + 'px';
   ctxMenu.querySelector('[data-action="me"]').addEventListener('click', () => {
     isMe ? clearMe() : setAsMe(id);
     hideCtxMenu();
@@ -780,9 +840,11 @@ function showCtxMenu(x, y, id) {
     enterFullTree(id);
   });
   ctxMenu.querySelector('[data-action="copy-link"]').addEventListener('click', () => {
+    const fileParam = window.GEDCOM_COUNT > 1
+      ? '?file=' + encodeURIComponent(window.GEDCOM_FILE) + '&person='
+      : '?person=';
     const url = window.location.origin + window.location.pathname
-              + '?file=' + encodeURIComponent(window.GEDCOM_FILE)
-              + '&person=' + encodeURIComponent(id);
+              + fileParam + encodeURIComponent(id);
     const btn = ctxMenu.querySelector('[data-action="copy-link"]');
     navigator.clipboard.writeText(url).then(() => {
       btn.textContent = 'Copied!';
@@ -791,6 +853,10 @@ function showCtxMenu(x, y, id) {
       btn.textContent = 'Copy failed';
       setTimeout(hideCtxMenu, 1200);
     });
+  });
+  ctxMenu.querySelector('[data-action="find-path"]').addEventListener('click', () => {
+    hideCtxMenu();
+    enterPickMode(id);
   });
 }
 
@@ -811,12 +877,21 @@ document.getElementById('people-list').addEventListener('contextmenu', e => {
 });
 
 document.addEventListener('click',   () => hideCtxMenu());
-document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    hideCtxMenu();
+    if (pickModeActive) cancelPickMode();
+    hidePathResult();
+  }
+});
 
 // ── Full tree mode ─────────────────────────────────────────────────────────
 
-let fullTreeActive = false;
+let fullTreeActive      = false;
 let fullTreePrevFocusId = null;
+
+let pickModeActive = false;
+let pickModeFromId = null;
 
 function buildFullTreeLayout(rootId) {
   const addedSet = new Set();
@@ -1120,6 +1195,118 @@ function exitFullTree() {
   document.body.classList.remove('full-tree-mode');
   const restoreId = fullTreePrevFocusId || focusId;
   if (restoreId) navigateTo(restoreId);
+}
+
+// ── Pick mode (find connection between two people) ────────────────────────
+
+const pickBanner = document.createElement('div');
+pickBanner.id = 'pick-banner';
+pickBanner.hidden = true;
+pickBanner.innerHTML = `<span id="pick-banner-text"></span><button id="pick-banner-cancel">Cancel</button>`;
+document.body.insertBefore(pickBanner, document.querySelector('main'));
+document.getElementById('pick-banner-cancel').addEventListener('click', cancelPickMode);
+
+const pathOverlay = document.createElement('div');
+pathOverlay.id = 'path-overlay';
+pathOverlay.hidden = true;
+pathOverlay.innerHTML = `
+  <div id="path-overlay-card">
+    <div id="path-overlay-header">
+      <span id="path-overlay-title">Relationship path</span>
+      <button id="path-overlay-close">&times;</button>
+    </div>
+    <div id="path-overlay-body"></div>
+  </div>
+`;
+document.body.appendChild(pathOverlay);
+document.getElementById('path-overlay-close').addEventListener('click', hidePathResult);
+pathOverlay.addEventListener('click', e => { if (e.target === pathOverlay) hidePathResult(); });
+
+function handlePersonClick(id) {
+  if (pickModeActive) {
+    selectPickTarget(id);
+  } else {
+    navigateTo(id);
+  }
+}
+
+function enterPickMode(fromId) {
+  pickModeActive = true;
+  pickModeFromId = fromId;
+  document.body.classList.add('pick-mode');
+  const ind = getIndividual(fromId);
+  document.getElementById('pick-banner-text').textContent =
+    (ind ? ind.name : fromId) + ' → select another person';
+  pickBanner.hidden = false;
+}
+
+function cancelPickMode() {
+  pickModeActive = false;
+  pickModeFromId = null;
+  document.body.classList.remove('pick-mode');
+  pickBanner.hidden = true;
+}
+
+function selectPickTarget(toId) {
+  const fromId = pickModeFromId;
+  cancelPickMode();
+  showPathResult(findPath(fromId, toId), fromId, toId);
+}
+
+const VIA_LABEL = {
+  parent: { arrow: '↑', label: 'child of'  },
+  child:  { arrow: '↓', label: 'parent of' },
+  spouse: { arrow: '—', label: 'spouse of' },
+};
+
+function showPathResult(path, fromId, toId) {
+  const body = document.getElementById('path-overlay-body');
+
+  if (!path) {
+    body.innerHTML = `<p class="path-message">No connection found between these two people.</p>`;
+    pathOverlay.hidden = false;
+    return;
+  }
+  if (path.length === 1) {
+    const ind = getIndividual(path[0].id);
+    body.innerHTML = `<p class="path-message">${esc(ind ? ind.name : path[0].id)} is the same person.</p>`;
+    pathOverlay.hidden = false;
+    return;
+  }
+
+  const fromInd = getIndividual(fromId);
+  const toInd   = getIndividual(toId);
+  document.getElementById('path-overlay-title').textContent =
+    (fromInd ? fromInd.name : fromId) + ' → ' + (toInd ? toInd.name : toId);
+
+  const parts = [];
+  for (let i = 0; i < path.length; i++) {
+    const step = path[i];
+    const ind  = getIndividual(step.id);
+    const ls   = ind ? lifespan(ind) : '';
+    parts.push(`<div class="path-step rel-link" data-id="${esc(step.id)}">
+      <span class="rel-name">${esc(ind ? ind.name : step.id)}</span>
+      ${ls ? `<span class="rel-dates">  ${esc(ls)}</span>` : ''}
+    </div>`);
+    if (i < path.length - 1) {
+      const vl = VIA_LABEL[path[i + 1].via] || { arrow: '·', label: '' };
+      parts.push(`<div class="path-connector">
+        <span class="path-arrow">${vl.arrow}</span>
+        <span class="path-via-label">${esc(vl.label)}</span>
+      </div>`);
+    }
+  }
+  body.innerHTML = parts.join('');
+
+  body.querySelectorAll('.path-step').forEach(el => {
+    el.addEventListener('click', () => { hidePathResult(); navigateTo(el.dataset.id); });
+  });
+
+  pathOverlay.hidden = false;
+}
+
+function hidePathResult() {
+  pathOverlay.hidden = true;
 }
 
 // ── People panel & upcoming toggle ────────────────────────────────────────

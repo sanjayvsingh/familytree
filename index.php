@@ -93,7 +93,7 @@ if (isset($_GET['file'])) {
 </main>
 
 <?php if ($selected): ?>
-<script>window.GEDCOM_FILE = <?= json_encode($selected) ?>;</script>
+<script>window.GEDCOM_FILE = <?= json_encode($selected) ?>; window.GEDCOM_COUNT = <?= count($available) ?>;</script>
 <script src="app.js?v=<?= filemtime(__DIR__.'/app.js') ?>"></script>
 <?php endif; ?>
 </body>
