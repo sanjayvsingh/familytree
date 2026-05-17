@@ -70,39 +70,50 @@ switch ($action) {
         $input  = json_decode(file_get_contents('php://input'), true);
         $prompt = trim($input['prompt'] ?? '');
         if (!$prompt) { echo json_encode(['summary' => '']); break; }
-        $url     = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=' . urlencode($apiKey);
+
+        $models  = ['gemini-2.0-flash-lite', 'gemini-3.0-flash'];
         $payload = json_encode([
-            'contents'        => [['parts' => [['text' => $prompt]]]],
+            'contents'         => [['parts' => [['text' => $prompt]]]],
             'generationConfig' => ['maxOutputTokens' => 80, 'temperature' => 0.4],
         ]);
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 12,
-        ]);
-        $resp     = curl_exec($ch);
-        $curlErr  = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($curlErr) {
-            error_log("Gemini: cURL error: $curlErr");
-            echo json_encode(['summary' => '', 'error' => "cURL: $curlErr"]);
-            break;
+
+        $text = '';
+        foreach ($models as $model) {
+            $url = 'https://generativelanguage.googleapis.com/v1beta/models/'
+                 . $model . ':generateContent?key=' . urlencode($apiKey);
+            $ch  = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $payload,
+                CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 12,
+            ]);
+            $resp     = curl_exec($ch);
+            $curlErr  = curl_error($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($curlErr) {
+                error_log("Gemini ($model): cURL error: $curlErr");
+                continue;
+            }
+            $gemini = json_decode($resp, true);
+            if ($httpCode !== 200 || isset($gemini['error'])) {
+                $msg = $gemini['error']['message'] ?? "HTTP $httpCode";
+                error_log("Gemini ($model): API error ($httpCode): $msg");
+                continue;
+            }
+            $text = $gemini['candidates'][0]['content']['parts'][0]['text'] ?? '';
+            if ($text === '') {
+                error_log("Gemini ($model): empty text in response: $resp");
+                continue;
+            }
+            break; // success
         }
-        $gemini = json_decode($resp, true);
-        if ($httpCode !== 200 || isset($gemini['error'])) {
-            $msg = $gemini['error']['message'] ?? "HTTP $httpCode";
-            error_log("Gemini: API error ($httpCode): $msg");
-            echo json_encode(['summary' => '', 'error' => $msg]);
-            break;
-        }
-        $text = $gemini['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
         if ($text === '') {
-            error_log('Gemini: empty text in response: ' . $resp);
-            echo json_encode(['summary' => '', 'error' => 'empty response']);
+            echo json_encode(['summary' => '', 'error' => 'All Gemini models failed']);
             break;
         }
         echo json_encode(['summary' => trim($text)], JSON_UNESCAPED_UNICODE);
