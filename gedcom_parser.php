@@ -89,7 +89,11 @@ function parse_gedcom(string $filepath): array {
 
             if (preg_match('/^@(.+)@$/', $tag, $im)) {
                 $id  = $im[1];
-                $ctx = $value;
+                // For level-0 xref records the value may be "TYPE inline-text"
+                // (e.g. "NOTE The actual text") — split so $ctx is just the type.
+                $spacePos  = strpos($value, ' ');
+                $ctx       = $spacePos !== false ? substr($value, 0, $spacePos) : $value;
+                $l0inline  = $spacePos !== false ? substr($value, $spacePos + 1) : '';
                 if ($ctx === 'INDI') {
                     $rec = [
                         'id'     => $id,   'name'   => '',
@@ -114,7 +118,7 @@ function parse_gedcom(string $filepath): array {
                         'note'     => '',
                     ];
                 } elseif ($ctx === 'NOTE') {
-                    $rec = ['_text' => $value];
+                    $rec = ['_text' => $l0inline];
                     $last_text_key = '_text';
                 }
             }
