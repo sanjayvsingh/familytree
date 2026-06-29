@@ -399,7 +399,6 @@ svg.connectors path.spouse-line {
   align-items: center;
 }
 #cal-download:hover { color: var(--text); }
-#cal-download .material-symbols-outlined { font-size: 18px; }
 #upcoming-toggle {
   background: none;
   border: none;

@@ -30,7 +30,6 @@ if (isset($_GET['file'])) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family Tree</title>
 <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__.'/style.css') ?>">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0&icon_names=calendar_add_on">
 </head>
 <body>
 
@@ -87,7 +86,7 @@ if (isset($_GET['file'])) {
     </aside>
   </div>
   <div id="upcoming-panel">
-    <h2>Upcoming Events <button id="cal-download" aria-label="Download calendar" title="Download .ics file"><span class="material-symbols-outlined">calendar_add_on</span></button><button id="upcoming-toggle" aria-label="Collapse upcoming">&#x25BE;</button></h2>
+    <h2>Upcoming Events <button id="cal-download" aria-label="Download calendar" title="Download .ics file"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17 12h-3v3h-2v-3H9v-2h3V7h2v3h3v2zm2-9h-1V1h-2v2H8V1H6v2H5C3.89 3 3 3.9 3 5v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg></button><button id="upcoming-toggle" aria-label="Collapse upcoming">&#x25BE;</button></h2>
     <div id="upcoming-list"></div>
   </div>
 <?php endif; ?>
