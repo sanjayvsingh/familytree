@@ -632,6 +632,18 @@ document.getElementById('panel-close').addEventListener('click', () => {
 
 // ── Upcoming dates ─────────────────────────────────────────────────────────
 
+const MONTHS = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+
+function parseGedDate(str) {
+  if (!str) return null;
+  const m = str.toUpperCase().match(/(?:ABT|CAL|EST|BEF|AFT)?\s*(\d{1,2}\s+)?([A-Z]{3})\s+(\d{4})/);
+  if (!m) return null;
+  const day   = m[1] ? parseInt(m[1]) : 1;
+  const month = MONTHS[m[2]];
+  if (month === undefined) return null;
+  return { day, month, year: parseInt(m[3]) };
+}
+
 function buildUpcoming() {
   const upcomingList = document.getElementById('upcoming-list');
   if (!upcomingList) return;
@@ -645,19 +657,6 @@ function buildUpcoming() {
   const distMap = meId ? buildDistanceMap(meId) : null;
   const ME_MAX  = 4;
   const inRange = id => !distMap || (distMap[id] ?? Infinity) <= ME_MAX;
-
-  // Month abbreviations used in GEDCOM dates
-  const MONTHS = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
-
-  function parseGedDate(str) {
-    if (!str) return null;
-    const m = str.toUpperCase().match(/(?:ABT|CAL|EST|BEF|AFT)?\s*(\d{1,2}\s+)?([A-Z]{3})\s+(\d{4})/);
-    if (!m) return null;
-    const day   = m[1] ? parseInt(m[1]) : 1;
-    const month = MONTHS[m[2]];
-    if (month === undefined) return null;
-    return { day, month, year: parseInt(m[3]) };
-  }
 
   function ordinal(n) {
     const v = n % 100;
@@ -728,6 +727,86 @@ function buildUpcoming() {
   upcomingList.querySelectorAll('.upcoming-card').forEach(el => {
     el.addEventListener('click', () => handlePersonClick(el.dataset.id));
   });
+}
+
+function downloadCalendarICS() {
+  const meId    = getMeId();
+  const distMap = meId ? buildDistanceMap(meId) : null;
+  const inRange = id => !distMap || (distMap[id] ?? Infinity) <= 4;
+
+  function icsDate(year, month, day) {
+    return `${year}${String(month + 1).padStart(2, '0')}${String(day).padStart(2, '0')}`;
+  }
+  function icsDateNext(year, month, day) {
+    const d = new Date(year, month, day + 1);
+    return icsDate(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function icsEsc(str) {
+    return String(str ?? '').replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;');
+  }
+  function cleanName(name) {
+    return name.replace(/\//g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Family Tree//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:Family Events',
+  ];
+
+  const todayYear = new Date().getFullYear();
+
+  // Birthdays — all living in-range individuals with a known birth date
+  for (const ind of Object.values(individuals)) {
+    if (!inRange(ind.id)) continue;
+    const parsed = parseGedDate(ind.birth?.date);
+    if (!parsed) continue;
+    if (ind.death?.date) continue;
+    if (todayYear - parsed.year > 90) continue;
+    lines.push(
+      'BEGIN:VEVENT',
+      `DTSTART;VALUE=DATE:${icsDate(parsed.year, parsed.month, parsed.day)}`,
+      `DTEND;VALUE=DATE:${icsDateNext(parsed.year, parsed.month, parsed.day)}`,
+      'RRULE:FREQ=YEARLY',
+      `SUMMARY:${icsEsc(cleanName(ind.name))}'s Birthday`,
+      `UID:birthday-${ind.id}@familytree`,
+      'END:VEVENT',
+    );
+  }
+
+  // Anniversaries — couples where neither partner is deceased
+  for (const [famId, fam] of Object.entries(families)) {
+    if (!inRange(fam.husb) && !inRange(fam.wife)) continue;
+    if (!fam.marr?.date) continue;
+    const parsed = parseGedDate(fam.marr.date);
+    if (!parsed) continue;
+    const h = fam.husb ? getIndividual(fam.husb) : null;
+    const w = fam.wife ? getIndividual(fam.wife) : null;
+    if (h?.death?.date || w?.death?.date) continue;
+    const names = [h?.name, w?.name].filter(Boolean).map(cleanName).join(' & ');
+    lines.push(
+      'BEGIN:VEVENT',
+      `DTSTART;VALUE=DATE:${icsDate(parsed.year, parsed.month, parsed.day)}`,
+      `DTEND;VALUE=DATE:${icsDateNext(parsed.year, parsed.month, parsed.day)}`,
+      'RRULE:FREQ=YEARLY',
+      `SUMMARY:${icsEsc(names)} Anniversary`,
+      `UID:anniversary-${famId}@familytree`,
+      'END:VEVENT',
+    );
+  }
+
+  lines.push('END:VCALENDAR');
+
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'family-events.ics';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -1680,6 +1759,8 @@ function exitPathView() {
       upcomingToggle.setAttribute('aria-label', collapsed ? 'Expand upcoming' : 'Collapse upcoming');
     });
   }
+
+  document.getElementById('cal-download')?.addEventListener('click', downloadCalendarICS);
 
   document.getElementById('full-tree-close').addEventListener('click', exitFullTree);
 

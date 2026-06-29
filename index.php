@@ -30,6 +30,7 @@ if (isset($_GET['file'])) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family Tree</title>
 <link rel="stylesheet" href="style.css?v=<?= filemtime(__DIR__.'/style.css') ?>">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0&icon_names=calendar_add_on">
 </head>
 <body>
 
@@ -86,7 +87,7 @@ if (isset($_GET['file'])) {
     </aside>
   </div>
   <div id="upcoming-panel">
-    <h2>Upcoming Events <button id="upcoming-toggle" aria-label="Collapse upcoming">&#x25BE;</button></h2>
+    <h2>Upcoming Events <button id="cal-download" aria-label="Download calendar" title="Download .ics file"><span class="material-symbols-outlined">calendar_add_on</span></button><button id="upcoming-toggle" aria-label="Collapse upcoming">&#x25BE;</button></h2>
     <div id="upcoming-list"></div>
   </div>
 <?php endif; ?>

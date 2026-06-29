@@ -388,8 +388,19 @@ svg.connectors path.spouse-line {
 #upcoming-panel.collapsed h2 {
   margin-bottom: 0;
 }
-#upcoming-toggle {
+#cal-download {
   margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+}
+#cal-download:hover { color: var(--text); }
+#cal-download .material-symbols-outlined { font-size: 18px; }
+#upcoming-toggle {
   background: none;
   border: none;
   font-size: 16px;
