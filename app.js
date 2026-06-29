@@ -181,12 +181,16 @@ function buildLayout(rootId) {
   for (const famId of focus.famc || []) {
     const fam = getFamily(famId);
     if (!fam) continue;
-    const siblings = (fam.children || []).filter(id => id !== rootId).slice(0, 6);
-    const half = Math.ceil(siblings.length / 2);
-    siblings.forEach((sibId, i) => {
-      const col = i < half ? -(i + 1) : (i - half + spouseCol);
-      add(sibId, col, 0, 'sibling');
-    });
+    const focusBY = parseInt(birthYear(focus) || '0');
+    const sortedSibs = (fam.children || [])
+      .filter(id => id !== rootId)
+      .map(id => ({ id, by: parseInt(birthYear(getIndividual(id)) || '9999') }))
+      .sort((a, b) => a.by - b.by);
+    const leftSibs  = focusBY ? sortedSibs.filter(s => s.by < focusBY).slice(-3) : [];
+    const rightSibs = (focusBY ? sortedSibs.filter(s => s.by >= focusBY) : sortedSibs)
+      .slice(0, 6 - leftSibs.length);
+    leftSibs.forEach((s, i)  => add(s.id, -(leftSibs.length - i), 0, 'sibling'));
+    rightSibs.forEach((s, i) => add(s.id, spouseCol + i, 0, 'sibling'));
     break;
   }
 
@@ -550,9 +554,13 @@ async function showDetail(id) {
   for (const famId of ind.famc || []) {
     const fam = getFamily(famId);
     if (!fam) continue;
-    for (const sibId of fam.children || []) {
-      if (sibId !== id) sibHtml += relLink(sibId, 'Sibling');
-    }
+    const sibs = (fam.children || []).filter(sibId => sibId !== id)
+      .sort((a, b) => {
+        const ay = parseInt(birthYear(getIndividual(a)) || '9999');
+        const by2 = parseInt(birthYear(getIndividual(b)) || '9999');
+        return ay - by2;
+      });
+    for (const sibId of sibs) sibHtml += relLink(sibId, 'Sibling');
     break;
   }
 
@@ -683,8 +691,8 @@ function buildUpcoming() {
     if (!parsed) continue;
     const h   = fam.husb ? getIndividual(fam.husb) : null;
     const w   = fam.wife ? getIndividual(fam.wife) : null;
-    // Skip if both are deceased
-    if (h?.death?.date && w?.death?.date) continue;
+    // Skip if either partner is deceased
+    if (h?.death?.date || w?.death?.date) continue;
     const thisYear = new Date(year, parsed.month, parsed.day);
     const diff     = thisYear - today;
     const daysAway = Math.ceil(diff / 86400000);

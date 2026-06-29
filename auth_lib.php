@@ -325,7 +325,7 @@ function auth_send_email(string $to, string $rawToken, string $code): bool {
   <div style="max-width:460px;margin:0 auto;background:#ffffff;border-radius:10px;border:1px solid #d4c9bc;padding:40px 32px">
     <h1 style="margin:0 0 6px;font-size:20px;color:#5c3d2e">Family Tree</h1>
     <p style="margin:0 0 28px;font-size:14px;color:#7a6555">Sign-in request</p>
-    <p style="margin:0 0 24px;font-size:15px;color:#2d1f14">Click the button below to sign in, or enter your 6-digit code on the site.</p>
+    <p style="margin:0 0 24px;font-size:15px;color:#2d1f14">Click the button below to sign in, or enter your 3-digit code on the site.</p>
     <a href="{$link}" style="display:inline-block;padding:12px 28px;background:#5c3d2e;color:#fff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:600">Sign in to Family Tree</a>
     <div style="margin:28px 0 0;padding-top:24px;border-top:1px solid #d4c9bc">
       <p style="margin:0 0 8px;font-size:13px;color:#7a6555">Or enter this 3-digit code on the site:</p>
