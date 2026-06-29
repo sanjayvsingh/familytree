@@ -177,7 +177,7 @@ function buildLayout(rootId) {
     break; // use first family as child only
   }
 
-  // Siblings (from first parent family, max 6)
+  // Siblings (from first parent family, all shown)
   for (const famId of focus.famc || []) {
     const fam = getFamily(famId);
     if (!fam) continue;
@@ -186,11 +186,10 @@ function buildLayout(rootId) {
       .filter(id => id !== rootId)
       .map(id => ({ id, by: parseInt(birthYear(getIndividual(id)) || '9999') }))
       .sort((a, b) => a.by - b.by);
-    const leftSibs  = focusBY ? sortedSibs.filter(s => s.by < focusBY).slice(-3) : [];
-    const rightSibs = (focusBY ? sortedSibs.filter(s => s.by >= focusBY) : sortedSibs)
-      .slice(0, 6 - leftSibs.length);
-    leftSibs.forEach((s, i)  => add(s.id, -(leftSibs.length - i), 0, 'sibling'));
-    rightSibs.forEach((s, i) => add(s.id, spouseCol + i, 0, 'sibling'));
+    const olderSibs   = focusBY ? sortedSibs.filter(s => s.by < focusBY) : [];
+    const youngerSibs = focusBY ? sortedSibs.filter(s => s.by >= focusBY) : sortedSibs;
+    olderSibs.forEach((s, i)   => add(s.id, -(olderSibs.length - i), 0, 'sibling'));
+    youngerSibs.forEach((s, i) => add(s.id, spouseCol + i, 0, 'sibling'));
     break;
   }
 
