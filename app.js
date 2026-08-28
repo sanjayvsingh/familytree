@@ -1697,16 +1697,40 @@ function renderPathView(path, fromId, toId) {
   // single-apex fan-out model assumed one monotonic up-then-down ancestor
   // chain and silently mis-rendered everything past a marriage hop as a
   // continued descent.
-  // Col = the node's position along the path, spaced by hop type. A 'spouse'
-  // hop keeps its current tight 1-column spacing (a married couple sits
-  // snugly side by side, same as everywhere else in the app). A 'parent' or
-  // 'child' hop gets 2 columns, because that's the only kind of hop that
-  // gets a co-parent card inserted below — the extra column is exactly the
-  // room the co-parent needs to sit at the midpoint without overlapping
-  // either neighboring path node (which a plain 0.5-column offset couldn't
-  // do: cards are nearly as wide as a full column, so half a column of
-  // clearance wasn't enough).
-  const HOP_COL_STEP = { parent: 2, child: 2, spouse: 1 };
+  //
+  // Col is spaced by hop type, but as tight as each hop can safely be:
+  //  - 'spouse' hops stay at 1 column (a married couple sits snugly side by
+  //    side, same as everywhere else in the app) — nothing else gets
+  //    inserted into a spouse hop's gap, so it never needs more room.
+  //  - 'parent'/'child' hops only get extra room when this specific hop
+  //    will actually get a co-parent card (found below, before laying out
+  //    columns, so we don't pay for space we won't use): exactly enough for
+  //    the co-parent to touch its partner and still clear the next path
+  //    node by a full column (TOUCH_STEP + 1). A hop whose co-parent isn't
+  //    in the data (or already appears elsewhere in the path) costs the
+  //    same 1 column as a spouse hop.
+  const TOUCH_STEP = CARD_W / COL_W; // column distance at which two cards sit flush, no gap
+
+  // Pre-scan: for each hop index i (the step FROM path[i-1] TO path[i]),
+  // find its co-parent (if any) up front so column widths can reflect
+  // whether that hop actually needs the extra room.
+  const hopCoparent = new Array(path.length).fill(null); // hopCoparent[i] = { parentId, childId, spouseId }
+  for (let i = 1; i < path.length; i++) {
+    const aId = path[i - 1].id, bId = path[i].id, via = path[i].via;
+    let parentId = null, childId = null;
+    if (via === 'parent')      { parentId = bId; childId = aId; }
+    else if (via === 'child')  { parentId = aId; childId = bId; }
+    else continue;
+
+    for (const fam of Object.values(families)) {
+      if (!((fam.husb === parentId || fam.wife === parentId) &&
+            (fam.children || []).includes(childId))) continue;
+      const spouseId = fam.husb === parentId ? fam.wife : fam.husb;
+      if (spouseId) hopCoparent[i] = { parentId, childId, spouseId };
+      break;
+    }
+  }
+
   const placed = new Map(); // id → {id, col, row}
   function placeNode(id, col, row) {
     if (!placed.has(id)) placed.set(id, { id, col, row });
@@ -1719,7 +1743,7 @@ function renderPathView(path, fromId, toId) {
     if (via === 'parent') row -= 1;
     else if (via === 'child') row += 1;
     // 'spouse' keeps the same row
-    col += HOP_COL_STEP[via] ?? 1;
+    col += hopCoparent[i] ? 1 + TOUCH_STEP : 1;
     placeNode(path[i].id, col, row);
   }
 
@@ -1733,30 +1757,14 @@ function renderPathView(path, fromId, toId) {
   }
   const apexIsThirdParty = apexId !== fromId && apexId !== toId;
 
-  // Co-parents: for each parent↔child step in the path, find the other parent
-  // in the GEDCOM family record and add them touching the path parent (like a
-  // real couple, zero gap between the two cards), leaning into that hop's
-  // 2-column gap toward the child. TOUCH_STEP is the column distance at which
-  // two cards sit flush with no visible gap between them.
-  const TOUCH_STEP = CARD_W / COL_W;
-  for (let i = 0; i < path.length - 1; i++) {
-    const aId = path[i].id, bId = path[i + 1].id, via = path[i + 1].via;
-    let parentId = null, childId = null;
-    if (via === 'parent')      { parentId = bId; childId = aId; }
-    else if (via === 'child')  { parentId = aId; childId = bId; }
-    else continue;
-
-    for (const fam of Object.values(families)) {
-      if (!((fam.husb === parentId || fam.wife === parentId) &&
-            (fam.children || []).includes(childId))) continue;
-      const spouseId = fam.husb === parentId ? fam.wife : fam.husb;
-      if (spouseId) {
-        const pn = placed.get(parentId), cn = placed.get(childId);
-        // Lean toward the child's side of the gap, touching the parent.
-        if (pn && cn) placeNode(spouseId, pn.col + Math.sign(cn.col - pn.col) * TOUCH_STEP, pn.row);
-      }
-      break;
-    }
+  // Place each hop's co-parent (found above) touching the path parent, like a
+  // real couple with zero gap between the two cards, leaning into that hop's
+  // extra column toward the child.
+  for (let i = 1; i < path.length; i++) {
+    const cp = hopCoparent[i];
+    if (!cp) continue;
+    const pn = placed.get(cp.parentId), cn = placed.get(cp.childId);
+    if (pn && cn) placeNode(cp.spouseId, pn.col + Math.sign(cn.col - pn.col) * TOUCH_STEP, pn.row);
   }
 
   // Convert (col, row) to pixel positions
