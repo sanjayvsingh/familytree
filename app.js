@@ -55,6 +55,22 @@ function birthYear(ind) {
   return m ? m[1] : '';
 }
 
+const BIRTH_MONTHS = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
+
+// Comparable key for chronological sorting: full date when known, falling back
+// to month+year (day treated as the 1st) or year-only (and finally "unknown")
+// while keeping incomplete dates last within their year/month, matching
+// birthYear()'s existing "unknown sorts last" rule.
+function birthSortKey(ind) {
+  const d = fmtDate(ind.birth).toUpperCase();
+  const y = d.match(/\b(\d{4})\b/);
+  const md = d.match(/(?:(\d{1,2})\s+)?([A-Z]{3})\s+\d{4}/);
+  const year  = y ? parseInt(y[1], 10) : 9999;
+  const month = md && BIRTH_MONTHS[md[2]] ? BIRTH_MONTHS[md[2]] : 13;
+  const day   = md && BIRTH_MONTHS[md[2]] ? (md[1] ? parseInt(md[1], 10) : 1) : 32;
+  return year * 10000 + month * 100 + day;
+}
+
 function lifespan(ind) {
   const b = birthYear(ind);
   const dd = fmtDate(ind.death);
@@ -554,11 +570,7 @@ async function showDetail(id) {
     const fam = getFamily(famId);
     if (!fam) continue;
     const sibs = (fam.children || []).filter(sibId => sibId !== id)
-      .sort((a, b) => {
-        const ay = parseInt(birthYear(getIndividual(a)) || '9999');
-        const by2 = parseInt(birthYear(getIndividual(b)) || '9999');
-        return ay - by2;
-      });
+      .sort((a, b) => birthSortKey(getIndividual(a)) - birthSortKey(getIndividual(b)));
     for (const sibId of sibs) sibHtml += relLink(sibId, 'Sibling');
     break;
   }
@@ -581,11 +593,7 @@ async function showDetail(id) {
       }
     }
   }
-  gcIds.sort((a, b) => {
-    const ay = parseInt(birthYear(getIndividual(a)) || '9999');
-    const by = parseInt(birthYear(getIndividual(b)) || '9999');
-    return ay - by;
-  });
+  gcIds.sort((a, b) => birthSortKey(getIndividual(a)) - birthSortKey(getIndividual(b)));
   const gcHtml = gcIds.map(gcId => relLink(gcId, 'Grandchild')).join('');
 
   content.innerHTML = `
@@ -935,6 +943,113 @@ function findPath(fromId, toId) {
   path.push({ id: fromId, via: null });
   path.reverse();
   return path;
+}
+
+// ── Deterministic relationship calculator ───────────────────────────────────
+// findPath() steps only encode raw parent/child/spouse hops. Handing that raw
+// list to an LLM and asking it to derive "great-great-grandparent" etc. is
+// unreliable: models miscount generations and routinely ignore that a
+// 'spouse' hop breaks blood lineage. So we compute the relationship term
+// ourselves here and only ask the LLM to phrase already-verified facts.
+
+const ORDINALS = ['zeroth','first','second','third','fourth','fifth','sixth','seventh','eighth','ninth','tenth'];
+
+function ordinal(n) {
+  return ORDINALS[n] || `${n}th`;
+}
+
+function ancestorTerm(n) {   // fromId is toId's ancestor, n generations up
+  if (n === 1) return 'parent';
+  if (n === 2) return 'grandparent';
+  return `${'great-'.repeat(n - 2)}grandparent`;
+}
+function descendantTerm(n) { // fromId is toId's descendant, n generations down
+  if (n === 1) return 'child';
+  if (n === 2) return 'grandchild';
+  return `${'great-'.repeat(n - 2)}grandchild`;
+}
+function auntUncleTerm(n) {  // fromId is toId's aunt/uncle, n generations removed beyond sibling
+  return n === 1 ? 'aunt/uncle' : `${'great-'.repeat(n - 1)}aunt/uncle`;
+}
+function niblingTerm(n) {    // fromId is toId's niece/nephew, n generations removed beyond sibling
+  return n === 1 ? 'niece/nephew' : `${'great-'.repeat(n - 1)}niece/nephew`;
+}
+function cousinTerm(degree, removed) {
+  let s = `${ordinal(degree)} cousin`;
+  if (removed > 0) s += ` ${removed === 1 ? 'once' : removed === 2 ? 'twice' : removed + ' times'} removed`;
+  return s;
+}
+
+// term = fromId's role relative to toId, i.e. "fromId is toId's <term>".
+function bloodTerm(ups, downs) {
+  if (ups === 0 && downs === 0) return 'the same person';
+  if (ups === 0) return ancestorTerm(downs);
+  if (downs === 0) return descendantTerm(ups);
+  if (ups === 1 && downs === 1) return 'sibling';
+  if (ups === 1) return auntUncleTerm(downs - 1);
+  if (downs === 1) return niblingTerm(ups - 1);
+  return cousinTerm(Math.min(ups, downs) - 1, Math.abs(ups - downs));
+}
+
+// A "segment" is a maximal run of a path connected purely by parent/child
+// hops (no spouse hop inside it) — i.e. a stretch where everyone is a blood
+// relative of everyone else in it.
+function splitPathAtSpouseHops(path) {
+  const segments = [];
+  let start = 0;
+  for (let i = 1; i < path.length; i++) {
+    if (path[i].via === 'spouse') {
+      segments.push(path.slice(start, i));
+      start = i;
+    }
+  }
+  segments.push(path.slice(start));
+  return segments;
+}
+
+// Computes the blood relation between a segment's first and last person.
+// Returns null if the segment's hops aren't a clean ascend-then-descend
+// chain (shouldn't happen for a real family tree, but bail out safely).
+function segmentBloodRelation(segment) {
+  if (segment.length < 2) return null;
+  let ups = 0;
+  while (ups < segment.length - 1 && segment[ups + 1].via === 'parent') ups++;
+  const monotonic = segment.slice(ups + 1).every(s => s.via === 'child');
+  if (!monotonic) return null;
+  const downs = segment.length - 1 - ups;
+  return { ups, downs, term: bloodTerm(ups, downs) };
+}
+
+// Builds a verified-facts string describing the relationship along `path`,
+// for an LLM to phrase (not compute). Uses `nameOf` to render each person.
+function computeRelationshipFacts(path, nameOf) {
+  const segments = splitPathAtSpouseHops(path);
+
+  if (segments.length === 1) {
+    const rel = segmentBloodRelation(segments[0]);
+    const from = nameOf(path[0].id), to = nameOf(path[path.length - 1].id);
+    if (!rel) return `${from} and ${to} are related by blood through a shared ancestor (exact relationship term unavailable).`;
+    return `${from} and ${to} are blood relatives. ${from} is ${to}'s ${rel.term}.`;
+  }
+
+  // One or more spouse hops: not a direct blood relationship. Describe each
+  // blood segment plus each marriage bridging them.
+  const facts = [];
+  for (let s = 0; s < segments.length; s++) {
+    const seg = segments[s];
+    const rel = segmentBloodRelation(seg);
+    if (rel && seg.length >= 2) {
+      const segFrom = nameOf(seg[0].id), segTo = nameOf(seg[seg.length - 1].id);
+      facts.push(`${segFrom} is ${segTo}'s ${rel.term}`);
+    }
+    if (s < segments.length - 1) {
+      const bridgeA = nameOf(segments[s][segments[s].length - 1].id);
+      const bridgeB = nameOf(segments[s + 1][0].id);
+      facts.push(`${bridgeA} is married to ${bridgeB}`);
+    }
+  }
+  const from = nameOf(path[0].id), to = nameOf(path[path.length - 1].id);
+  return `${from} and ${to} are NOT blood relatives — they are connected only through marriage. Verified facts: ${facts.join('; ')}.`;
 }
 
 // Context menu
@@ -1509,18 +1624,18 @@ function showPathResult(path, fromId, toId) {
 
   pathOverlay.hidden = false;
 
-  // Fetch AI narrative summary using first names only (no dates or full names sent externally)
+  // Fetch AI narrative summary using first names only (no dates or full names sent externally).
+  // The relationship itself (blood vs. in-law, exact generational term) is computed
+  // deterministically above — the LLM's only job is to phrase the given facts naturally,
+  // not to derive them (it reliably miscounts generations and misses marriage breaks).
   const firstNameOnly = name => (name || '').split(' ')[0].replace(/[()]/g, '') || 'Person';
-  const viaDesc = { parent: 'child of', child: 'parent of', spouse: 'spouse of' };
-  const steps = [];
-  for (let i = 0; i < path.length - 1; i++) {
-    const ind = getIndividual(path[i].id);
-    const nextInd = getIndividual(path[i + 1].id);
-    steps.push(`${firstNameOnly(ind ? ind.name : '')} is ${viaDesc[path[i+1].via] || 'related to'} ${firstNameOnly(nextInd ? nextInd.name : '')}`);
-  }
+  const nameOf = id => firstNameOnly(getIndividual(id)?.name);
   const fromFirst = firstNameOnly(fromInd ? fromInd.name : fromId);
   const toFirst   = firstNameOnly(toInd   ? toInd.name   : toId);
-  const prompt = `Family tree path: ${steps.join('; ')}. In up to 2 sentences and under 40 words, describe the family relationship between ${fromFirst} and ${toFirst}.`;
+  const facts = computeRelationshipFacts(path, nameOf);
+  const prompt = `Verified facts about a family relationship (do not recompute, contradict, or add to these — just phrase them naturally): ${facts} `
+    + `In up to 2 sentences and under 40 words, write a natural-language summary of how ${fromFirst} and ${toFirst} are related. `
+    + `If the facts say they are not blood relatives, make that explicit and describe the marriage connection instead of using ancestor/descendant terms like "grandparent" between them directly.`;
 
   const summaryEl = document.createElement('div');
   summaryEl.className = 'path-summary path-summary-loading';
@@ -1556,15 +1671,6 @@ function hidePathResult() {
 
 // ── Path view (show path nodes on canvas after modal closes) ─────────────
 
-function findApexIndex(path) {
-  // Apex is the last node before the path starts descending (first 'child' step).
-  // This handles spouse hops interspersed in the ascending portion correctly.
-  for (let i = 1; i < path.length; i++) {
-    if (path[i].via === 'child') return i - 1;
-  }
-  return path.length - 1;
-}
-
 function enterPathView() {
   if (!storedPath || storedPath.length < 2) return;
   if (fullTreeActive) {
@@ -1583,61 +1689,56 @@ function enterPathView() {
 
 function renderPathView(path, fromId, toId) {
   canvas.innerHTML = '';
-  const apexIdx = findApexIndex(path);
-  const apexId  = path[apexIdx].id;
 
-  // Each node gets (col, row). Apex is at (0,0).
-  // Left branch fans down-left: each child generation shifts one col left.
-  // Right branch fans down-right: each child generation shifts one col right.
-  // Spouse hops stay on the same row and shift one col in the current direction.
-  // co-parents always go at col+1 relative to the path node they're paired with.
-  // With this diagonal layout, no two distinct (col,row) pairs collide:
-  //   left-branch path: col == -row; right-branch path: col == +row.
-  //   co-parents: col == -(row-1) for left, col == row+1 for right — no collisions.
-
+  // Row = actual generational depth, tracked step by step along the path:
+  // a 'parent' hop moves up a row, a 'child' hop moves down a row, a 'spouse'
+  // hop stays level. This works for any path shape, including one that
+  // crosses a marriage and changes direction partway through — the old
+  // single-apex fan-out model assumed one monotonic up-then-down ancestor
+  // chain and silently mis-rendered everything past a marriage hop as a
+  // continued descent.
+  // Col = the node's position along the path, spaced by hop type. A 'spouse'
+  // hop keeps its current tight 1-column spacing (a married couple sits
+  // snugly side by side, same as everywhere else in the app). A 'parent' or
+  // 'child' hop gets 2 columns, because that's the only kind of hop that
+  // gets a co-parent card inserted below — the extra column is exactly the
+  // room the co-parent needs to sit at the midpoint without overlapping
+  // either neighboring path node (which a plain 0.5-column offset couldn't
+  // do: cards are nearly as wide as a full column, so half a column of
+  // clearance wasn't enough).
+  const HOP_COL_STEP = { parent: 2, child: 2, spouse: 1 };
   const placed = new Map(); // id → {id, col, row}
   function placeNode(id, col, row) {
     if (!placed.has(id)) placed.set(id, { id, col, row });
   }
 
-  placeNode(apexId, 0, 0);
-
-  // Left branch: walk from apex toward fromId.
-  // path[i+1].via = relationship FROM path[i] TO path[i+1]:
-  //   'parent' → path[i+1] is a parent of path[i], so path[i] is one row further down.
-  //   'spouse' → same generation, side by side.
-  let lRow = 0, lCol = 0;
-  for (let i = apexIdx - 1; i >= 0; i--) {
-    const via = path[i + 1].via;
-    if (via === 'spouse') {
-      lCol -= 1;
-      placeNode(path[i].id, lCol, lRow);
-    } else {
-      lRow++;
-      lCol = -lRow;
-      placeNode(path[i].id, lCol, lRow);
-    }
-  }
-
-  // Right branch: walk from apex toward toId.
-  // path[i].via = relationship FROM path[i-1] TO path[i]:
-  //   'child' → path[i] is a child of path[i-1], so one row further down.
-  //   'spouse' → same generation.
-  let rRow = 0, rCol = 0;
-  for (let i = apexIdx + 1; i < path.length; i++) {
+  placeNode(path[0].id, 0, 0);
+  let row = 0, col = 0;
+  for (let i = 1; i < path.length; i++) {
     const via = path[i].via;
-    if (via === 'spouse') {
-      rCol += 1;
-      placeNode(path[i].id, rCol, rRow);
-    } else {
-      rRow++;
-      rCol = rRow;
-      placeNode(path[i].id, rCol, rRow);
-    }
+    if (via === 'parent') row -= 1;
+    else if (via === 'child') row += 1;
+    // 'spouse' keeps the same row
+    col += HOP_COL_STEP[via] ?? 1;
+    placeNode(path[i].id, col, row);
   }
+
+  // Highlight the most-ancestral (topmost) node in the path, as long as it's
+  // an actual third-party common ancestor rather than one of the two people
+  // being compared (e.g. a plain grandparent→grandchild path has no such node).
+  let apexId = path[0].id, apexRow = placed.get(path[0].id).row;
+  for (const step of path) {
+    const n = placed.get(step.id);
+    if (n.row < apexRow) { apexRow = n.row; apexId = step.id; }
+  }
+  const apexIsThirdParty = apexId !== fromId && apexId !== toId;
 
   // Co-parents: for each parent↔child step in the path, find the other parent
-  // in the GEDCOM family record and add them at col+1 of the path node.
+  // in the GEDCOM family record and add them touching the path parent (like a
+  // real couple, zero gap between the two cards), leaning into that hop's
+  // 2-column gap toward the child. TOUCH_STEP is the column distance at which
+  // two cards sit flush with no visible gap between them.
+  const TOUCH_STEP = CARD_W / COL_W;
   for (let i = 0; i < path.length - 1; i++) {
     const aId = path[i].id, bId = path[i + 1].id, via = path[i + 1].via;
     let parentId = null, childId = null;
@@ -1650,8 +1751,9 @@ function renderPathView(path, fromId, toId) {
             (fam.children || []).includes(childId))) continue;
       const spouseId = fam.husb === parentId ? fam.wife : fam.husb;
       if (spouseId) {
-        const pn = placed.get(parentId);
-        if (pn) placeNode(spouseId, pn.col + 1, pn.row);
+        const pn = placed.get(parentId), cn = placed.get(childId);
+        // Lean toward the child's side of the gap, touching the parent.
+        if (pn && cn) placeNode(spouseId, pn.col + Math.sign(cn.col - pn.col) * TOUCH_STEP, pn.row);
       }
       break;
     }
@@ -1675,7 +1777,7 @@ function renderPathView(path, fromId, toId) {
     if (pathSet.has(n.id))              card.classList.add('path-node');
     if (n.id === fromId)                card.classList.add('path-endpoint-from');
     if (n.id === toId)                  card.classList.add('path-endpoint-to');
-    if (n.id === apexId && apexIdx > 0) card.classList.add('path-apex');
+    if (n.id === apexId && apexIsThirdParty) card.classList.add('path-apex');
     card.style.left = n.x + 'px';
     card.style.top  = n.y + 'px';
     card.dataset.id = n.id;
