@@ -14,7 +14,7 @@ A browser-based family tree viewer that reads standard GEDCOM files and renders 
 - **Detail panel** — vital records (birth, death, burial, christening), occupation, religion, residence, notes, and clickable relationship links
 - **Upcoming dates** — scrollable panel showing birthdays and wedding anniversaries in the next 90 days; filters out people born more than 90 years ago who have no recorded death date
 - **Pan & zoom** — drag to pan, scroll wheel or pinch to zoom, touch-friendly on mobile
-- **Magic-link authentication** — passwordless email sign-in with a 3-digit code or click-to-verify link; 30-day sessions; rate-limited per IP
+- **Magic-link authentication** — passwordless email sign-in with a 3-digit code or click-to-verify link; sessions that don't expire; rate-limited per IP
 - **Privacy-safe** — GEDCOM files are gitignored and never leave your server
 
 ## Requirements

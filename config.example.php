@@ -17,8 +17,8 @@ return [
     'allowed_emails'  => [],
 
     // Token lifetimes (seconds)
-    'magic_token_ttl' => 1800,    // 30 minutes for the magic link / code
-    'session_ttl'     => 2592000, // 30 days for the session
+    'magic_token_ttl' => 1800,       // 30 minutes for the magic link / code
+    'session_ttl'     => 3155760000, // 100 years — effectively never expires
 
     // Rate limiting: max requests per IP within the window
     'rate_window'        => 600,  // 10-minute sliding window
